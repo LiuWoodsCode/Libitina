@@ -18,7 +18,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango
 
 from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
 
@@ -559,29 +559,40 @@ class ApplicationLauncher(Gtk.Window):
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        app_list = Gtk.ListBox()
-        app_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        app_list.get_style_context().add_class("application-list")
+        app_grid = Gtk.FlowBox()
+        app_grid.set_selection_mode(Gtk.SelectionMode.NONE)
+        app_grid.set_homogeneous(True)
+        app_grid.set_min_children_per_line(5)
+        app_grid.set_max_children_per_line(5)
+        app_grid.set_column_spacing(8)
+        app_grid.set_row_spacing(8)
+        app_grid.set_valign(Gtk.Align.START)
+        app_grid.get_style_context().add_class("application-grid")
         for app in self._applications():
-            app_list.add(self._app_row(app))
-        scroller.add(app_list)
+            app_grid.add(self._app_tile(app))
+        scroller.add(app_grid)
         outer.pack_start(scroller, True, True, 0)
         return outer
 
-    def _app_row(self, app: Gio.DesktopAppInfo) -> Gtk.Widget:
-        row = Gtk.ListBoxRow()
+    def _app_tile(self, app: Gio.DesktopAppInfo) -> Gtk.Widget:
         button = Gtk.Button()
         button.get_style_context().add_class("application-button")
-        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        content.set_halign(Gtk.Align.CENTER)
+        content.set_valign(Gtk.Align.CENTER)
         icon = app.get_icon()
-        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.MENU) if icon else \
-            Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.MENU)
+        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG) if icon else \
+            Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DIALOG)
         content.pack_start(image, False, False, 0)
-        content.pack_start(Gtk.Label(label=app.get_display_name(), xalign=0), True, True, 0)
+        label = Gtk.Label(label=app.get_display_name())
+        label.set_justify(Gtk.Justification.CENTER)
+        label.set_line_wrap(True)
+        label.set_lines(2)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        content.pack_start(label, False, False, 0)
         button.add(content)
         button.connect("clicked", self._launch_app, app)
-        row.add(button)
-        return row
+        return button
 
     @staticmethod
     def _applications() -> list[Gio.DesktopAppInfo]:
@@ -809,10 +820,10 @@ class RunningWindow(Gtk.Window):
             color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
         button.launch-button:hover { background: #4a4a4a; }
         .launcher { background: #202020; padding: 7px; }
-        .application-list { background: #202020; }
-        .application-list row { min-height: 0; padding: 0; }
+        .application-grid { background: #202020; padding: 8px; }
+        .application-grid flowboxchild { padding: 0; }
         button.application-button { background: transparent; border: 0; border-radius: 0;
-            color: white; min-height: 22px; padding: 1px 5px; }
+            color: white; min-height: 92px; padding: 8px 5px; }
         button.application-button:hover { background: #3b4654; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
