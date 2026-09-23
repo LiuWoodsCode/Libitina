@@ -535,27 +535,22 @@ class SystemTray(Gtk.Box):
 
 
 class ApplicationLauncher(Gtk.Window):
-    WIDTH = 340
-    HEIGHT = 440
-
     def __init__(self):
         super().__init__(title="Applications")
         self.set_decorated(False)
-        self.set_resizable(False)
+        self.set_resizable(True)
         self.connect("key-press-event", self._on_key_press)
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
-        # The taskbar's exclusive zone already makes this edge sit immediately
-        # above the bar.  An additional margin would leave a taskbar-sized gap.
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, 0)
         GtkLayerShell.set_exclusive_zone(self, 0)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
         GtkLayerShell.set_namespace(self, "application-launcher")
 
-        self.set_size_request(self.WIDTH, self.HEIGHT)
         self.add(self._build_content())
 
     def _build_content(self) -> Gtk.Widget:
@@ -608,7 +603,7 @@ class ApplicationLauncher(Gtk.Window):
     def _applications() -> list[Gio.DesktopAppInfo]:
         apps: list[Gio.DesktopAppInfo] = []
         seen: set[str] = set()
-        for desktop_file in Taskbar._desktop_files():
+        for desktop_file in RunningWindow._desktop_files():
             desktop_id = desktop_file.name
             if desktop_id in seen:
                 continue
@@ -804,36 +799,21 @@ class StatusBar(Gtk.Window):
         return True
 
 
-class Taskbar(Gtk.Window):
-    HEIGHT = 36
+class RunningWindow(Gtk.Window):
     ICON_SIZE = 32
 
     def __init__(self):
-        super().__init__(title="Taskbar")
+        super().__init__(title="Running Applications")
         self._wayland = WaylandWindowCollector()
         self._groups: dict[str, list[WindowInfo]] = {}
         self._buttons: dict[str, Gtk.Button] = {}
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
-        self._launcher = ApplicationLauncher()
 
-        self.set_decorated(False)
-        self.connect("destroy", lambda *_: Gtk.main_quit())
-
-        GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
-        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
-        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
-        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
-        GtkLayerShell.set_exclusive_zone(self, self.HEIGHT)
-        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
-        GtkLayerShell.set_namespace(self, "wlroots-taskbar")
+        self.set_default_size(720, 36)
+        self.connect("delete-event", self._on_delete)
 
         self._install_css()
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        launch_button = Gtk.Button(label="Launch")
-        launch_button.get_style_context().add_class("launch-button")
-        launch_button.connect("clicked", lambda *_: self._launcher.toggle())
-        bar.pack_start(launch_button, False, False, 0)
         self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._task_box.set_hexpand(True)
         bar.pack_start(self._task_box, True, True, 0)
@@ -841,12 +821,18 @@ class Taskbar(Gtk.Window):
         bar.pack_end(self._tray, False, False, 0)
         self.add(bar)
 
-        # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
-        # request.  resize(1, 1) forces it to discard the previous allocation;
-        # the left/right anchors still make the compositor provide full width.
-        self.set_size_request(-1, self.HEIGHT)
-        self.resize(1, 1)
         GLib.timeout_add(100, self._refresh_tick)
+
+    def _on_delete(self, *_args) -> bool:
+        self.hide()
+        return True
+
+    def toggle(self) -> None:
+        if self.get_visible():
+            self.hide()
+        else:
+            self.show_all()
+            self.present()
 
     def _install_css(self):
         provider = Gtk.CssProvider()
@@ -897,7 +883,7 @@ class Taskbar(Gtk.Window):
         self._groups = groups
         for key, button in self._buttons.items():
             self._update_button(button, groups[key])
-        self.show_all()
+        self._task_box.show_all()
 
     def _update_button(self, button: Gtk.Button, windows: list[WindowInfo]) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -1007,6 +993,40 @@ class Taskbar(Gtk.Window):
             try: result.extend((root / "applications").rglob("*.desktop"))
             except Exception: pass
         return result
+
+
+class Taskbar(Gtk.Window):
+    HEIGHT = 36
+
+    def __init__(self):
+        super().__init__(title="Taskbar")
+        self._launcher = ApplicationLauncher()
+        self._running = RunningWindow()
+
+        self.set_decorated(False)
+        self.connect("destroy", lambda *_: Gtk.main_quit())
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
+        GtkLayerShell.set_exclusive_zone(self, self.HEIGHT)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_namespace(self, "wlroots-taskbar")
+
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        for label, callback in (
+                ("Launch", self._launcher.toggle),
+                ("Running", self._running.toggle)):
+            button = Gtk.Button(label=label)
+            button.get_style_context().add_class("launch-button")
+            button.connect("clicked", lambda _button, action=callback: action())
+            bar.pack_start(button, True, True, 0)
+        self.add(bar)
+
+        self.set_size_request(-1, self.HEIGHT)
+        self.resize(1, 1)
 
 
 def main() -> int:
