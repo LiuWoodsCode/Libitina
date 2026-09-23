@@ -1,4 +1,3 @@
-import getpass
 import os
 import re
 import select
@@ -558,22 +557,6 @@ class ApplicationLauncher(Gtk.Window):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.get_style_context().add_class("launcher")
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        user = Gtk.Label(label=getpass.getuser(), xalign=0)
-        user.get_style_context().add_class("launcher-user")
-        user.set_hexpand(True)
-        header.pack_start(user, True, True, 0)
-
-        power = Gtk.MenuButton()
-        power.set_tooltip_text("Power options")
-        power.add(Gtk.Image.new_from_icon_name("system-shutdown-symbolic", Gtk.IconSize.BUTTON))
-        power.set_popup(self._power_menu())
-        header.pack_end(power, False, False, 0)
-        outer.pack_start(header, False, False, 0)
-
-        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        outer.pack_start(separator, False, False, 0)
-
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         app_list = Gtk.ListBox()
@@ -625,47 +608,6 @@ class ApplicationLauncher(Gtk.Window):
                 self.hide()
         except GLib.Error as exc:
             self._show_error(f"Could not launch {app.get_display_name()}", exc.message)
-
-    def _power_menu(self) -> Gtk.Menu:
-        menu = Gtk.Menu()
-        actions = (
-            ("Lock", ("loginctl", "lock-session"), False),
-            ("Suspend", ("systemctl", "suspend"), True),
-            ("Restart", ("systemctl", "reboot"), True),
-            ("Power Off", ("systemctl", "poweroff"), True),
-        )
-        for label, command, confirm in actions:
-            item = Gtk.MenuItem(label=label)
-            item.connect("activate", self._power_action, label, command, confirm)
-            menu.append(item)
-        menu.append(Gtk.SeparatorMenuItem())
-        kill_shell = Gtk.MenuItem(label="Kill Shell")
-        kill_shell.connect("activate", lambda _item: Gtk.main_quit())
-        menu.append(kill_shell)
-        menu.show_all()
-        return menu
-
-    def _power_action(self, _item: Gtk.MenuItem, label: str, command: tuple[str, ...], confirm: bool) -> None:
-        if confirm:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                modal=True,
-                message_type=Gtk.MessageType.QUESTION,
-                buttons=Gtk.ButtonsType.CANCEL,
-                text=f"{label}?",
-            )
-            dialog.format_secondary_text("Any unsaved work may be lost.")
-            dialog.add_button(label, Gtk.ResponseType.OK)
-            response = dialog.run()
-            dialog.destroy()
-            if response != Gtk.ResponseType.OK:
-                return
-        try:
-            Gio.Subprocess.new(command, Gio.SubprocessFlags.NONE)
-            if not self._locked_open:
-                self.hide()
-        except GLib.Error as exc:
-            self._show_error(f"Could not {label.lower()}", exc.message)
 
     def _show_error(self, title: str, detail: str) -> None:
         dialog = Gtk.MessageDialog(
@@ -867,7 +809,6 @@ class RunningWindow(Gtk.Window):
             color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
         button.launch-button:hover { background: #4a4a4a; }
         .launcher { background: #202020; padding: 7px; }
-        .launcher-user { color: white; font-size: 14px; font-weight: bold; }
         .application-list { background: #202020; }
         .application-list row { min-height: 0; padding: 0; }
         button.application-button { background: transparent; border: 0; border-radius: 0;
