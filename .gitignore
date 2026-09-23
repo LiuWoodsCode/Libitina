@@ -1,0 +1,15 @@
+*.zip
+userdata/
+logs/
+config.json
+*.pyc
+*/__pycache__/
+apps/*/__pycache__/
+drivers/__pycache__/
+.codex
+crash_logs/*
+err*
+panic*
+*.DS_Store
+Code/Stockwood/Monika/built/*
+Code/Ranboo/RanbooSwiftUI/RanbooSwiftUI.xcodeproj/project.xcworkspace/xcuserdata/dapixelprowler.xcuserdatad/UserInterfaceState.xcuserstate
