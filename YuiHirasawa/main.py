@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from queue import SimpleQueue
-from typing import Any
+from typing import Any, Callable
 
 import gi
 
@@ -537,12 +537,13 @@ class SystemTray(Gtk.Box):
 class ApplicationLauncher(Gtk.Window):
     def __init__(self):
         super().__init__(title="Applications")
+        self._locked_open = False
         self.set_decorated(False)
         self.set_resizable(True)
         self.connect("key-press-event", self._on_key_press)
 
         GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
@@ -620,7 +621,8 @@ class ApplicationLauncher(Gtk.Window):
     def _launch_app(self, _button: Gtk.Button, app: Gio.DesktopAppInfo) -> None:
         try:
             app.launch([], None)
-            self.hide()
+            if not self._locked_open:
+                self.hide()
         except GLib.Error as exc:
             self._show_error(f"Could not launch {app.get_display_name()}", exc.message)
 
@@ -660,7 +662,8 @@ class ApplicationLauncher(Gtk.Window):
                 return
         try:
             Gio.Subprocess.new(command, Gio.SubprocessFlags.NONE)
-            self.hide()
+            if not self._locked_open:
+                self.hide()
         except GLib.Error as exc:
             self._show_error(f"Could not {label.lower()}", exc.message)
 
@@ -678,11 +681,20 @@ class ApplicationLauncher(Gtk.Window):
 
     def _on_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
         if event.keyval == Gdk.KEY_Escape:
-            self.hide()
+            if not self._locked_open:
+                self.hide()
             return True
         return False
 
+    def set_locked_open(self, locked: bool) -> None:
+        self._locked_open = locked
+        if locked:
+            self.show_all()
+            self.present()
+
     def toggle(self) -> None:
+        if self._locked_open:
+            return
         if self.get_visible():
             self.hide()
         else:
@@ -705,7 +717,7 @@ class StatusBar(Gtk.Window):
         self.set_decorated(False)
 
         GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
@@ -802,12 +814,14 @@ class StatusBar(Gtk.Window):
 class RunningWindow(Gtk.Window):
     ICON_SIZE = 32
 
-    def __init__(self):
+    def __init__(self, on_running_changed: Callable[[bool], None]):
         super().__init__(title="Running Applications")
         self._wayland = WaylandWindowCollector()
         self._groups: dict[str, list[WindowInfo]] = {}
         self._buttons: dict[str, Gtk.Button] = {}
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
+        self._has_running: bool | None = None
+        self._on_running_changed = on_running_changed
 
         self.set_default_size(720, 36)
         self.connect("delete-event", self._on_delete)
@@ -865,6 +879,8 @@ class RunningWindow(Gtk.Window):
     def _refresh_tick(self) -> bool:
         groups: dict[str, list[WindowInfo]] = {}
         for window in self._wayland.windows():
+            if window.title == self.get_title():
+                continue
             groups.setdefault(window.group_key, []).append(window)
         self._set_groups(groups)
         return True
@@ -884,6 +900,10 @@ class RunningWindow(Gtk.Window):
         for key, button in self._buttons.items():
             self._update_button(button, groups[key])
         self._task_box.show_all()
+        has_running = bool(groups)
+        if has_running != self._has_running:
+            self._has_running = has_running
+            self._on_running_changed(has_running)
 
     def _update_button(self, button: Gtk.Button, windows: list[WindowInfo]) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -1000,14 +1020,15 @@ class Taskbar(Gtk.Window):
 
     def __init__(self):
         super().__init__(title="Taskbar")
+        self._no_running_programs = True
         self._launcher = ApplicationLauncher()
-        self._running = RunningWindow()
+        self._running = RunningWindow(self._on_running_changed)
 
         self.set_decorated(False)
         self.connect("destroy", lambda *_: Gtk.main_quit())
 
         GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
@@ -1027,6 +1048,19 @@ class Taskbar(Gtk.Window):
 
         self.set_size_request(-1, self.HEIGHT)
         self.resize(1, 1)
+        GLib.idle_add(self._show_initial_launcher)
+
+    def _show_initial_launcher(self) -> bool:
+        if self._no_running_programs:
+            self._launcher.set_locked_open(True)
+        return GLib.SOURCE_REMOVE
+
+    def _on_running_changed(self, has_running: bool) -> None:
+        had_no_running_programs = self._no_running_programs
+        self._no_running_programs = not has_running
+        self._launcher.set_locked_open(self._no_running_programs)
+        if has_running and had_no_running_programs:
+            self._launcher.hide()
 
 
 def main() -> int:
