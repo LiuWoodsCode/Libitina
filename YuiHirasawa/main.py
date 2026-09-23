@@ -695,9 +695,8 @@ class ApplicationLauncher(Gtk.Window):
             self.present()
 
 
-class Taskbar(Gtk.Window):
-    HEIGHT = 36
-    ICON_SIZE = 32
+class StatusBar(Gtk.Window):
+    HEIGHT = 32
     STATUS_ICON_SIZE = 20
     STATUS_PLACEHOLDERS = (
         ("network", "Network", "assets/icons/network/wifi/dark/4.svg"),
@@ -707,60 +706,38 @@ class Taskbar(Gtk.Window):
     )
 
     def __init__(self):
-        super().__init__(title="Taskbar")
-        self._wayland = WaylandWindowCollector()
-        self._groups: dict[str, list[WindowInfo]] = {}
-        self._buttons: dict[str, Gtk.Button] = {}
-        self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
-        self._launcher = ApplicationLauncher()
-
+        super().__init__(title="Status Bar")
         self.set_decorated(False)
-        self.connect("destroy", lambda *_: Gtk.main_quit())
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
-        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
         GtkLayerShell.set_exclusive_zone(self, self.HEIGHT)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
-        GtkLayerShell.set_namespace(self, "wlroots-taskbar")
+        GtkLayerShell.set_namespace(self, "wlroots-statusbar")
 
-        self._install_css()
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        launch_button = Gtk.Button(label="Launch")
-        launch_button.get_style_context().add_class("launch-button")
-        launch_button.connect("clicked", lambda *_: self._launcher.toggle())
-        bar.pack_start(launch_button, False, False, 0)
-        self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self._task_box.set_hexpand(True)
-        bar.pack_start(self._task_box, True, True, 0)
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
-        self._tray = SystemTray()
-        status_box.pack_start(self._tray, False, False, 0)
-        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._clock = Gtk.Label()
+        self._clock.get_style_context().add_class("clock")
+        bar.pack_start(self._clock, False, False, 0)
+
+        status_icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
-            placeholder_box.pack_start(
+            status_icons.pack_start(
                 self._status_placeholder_button(icon_type, tooltip, icon_path),
                 False,
                 False,
                 0,
             )
-        status_box.pack_start(placeholder_box, False, False, 0)
-        self._clock = Gtk.Label()
-        self._clock.get_style_context().add_class("clock")
-        status_box.pack_start(self._clock, False, False, 0)
-        bar.pack_end(status_box, False, False, 0)
+        bar.pack_end(status_icons, False, False, 0)
         self.add(bar)
 
-        # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
-        # request.  resize(1, 1) forces it to discard the previous allocation;
-        # the left/right anchors still make the compositor provide full width.
         self.set_size_request(-1, self.HEIGHT)
         self.resize(1, 1)
         self._update_clock()
         GLib.timeout_add_seconds(1, self._update_clock)
-        GLib.timeout_add(100, self._refresh_tick)
 
     def _status_placeholder_button(
             self, icon_type: str, tooltip: str, relative_path: str) -> Gtk.Button:
@@ -773,7 +750,7 @@ class Taskbar(Gtk.Window):
             )
             button.add(_fixed_icon_image(pixbuf, self.STATUS_ICON_SIZE))
         except GLib.Error as exc:
-            print(f"taskbar: could not load {icon_path}: {exc}", file=sys.stderr)
+            print(f"statusbar: could not load {icon_path}: {exc}", file=sys.stderr)
             image = Gtk.Image()
             image.set_size_request(self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE)
             button.add(image)
@@ -807,8 +784,6 @@ class Taskbar(Gtk.Window):
             text = f"{icon_type} is not currently implemented, for now use either the Ranboo API's ironmouse endpoints or nmcli."
         if icon_type == "bt":
             text = f"{icon_type} is not currently implemented, for now use bluetoothctl"
-        if icon_type == "audio":
-            text = f"{icon_type} is not currently implemented, wait how did we get here???"
         if icon_type == "pwr":
             text = f"{icon_type} is not currently implemented, the ranboo battery sharing APIs currently aren't implemented and because of the way that eben is designed, upower is not too helpful (except for peripherals and iDevices)"
 
@@ -827,6 +802,51 @@ class Taskbar(Gtk.Window):
         self._clock.set_text(now.format("%H:%M"))
         self._clock.set_tooltip_text(now.format("%A, %B %e, %Y"))
         return True
+
+
+class Taskbar(Gtk.Window):
+    HEIGHT = 36
+    ICON_SIZE = 32
+
+    def __init__(self):
+        super().__init__(title="Taskbar")
+        self._wayland = WaylandWindowCollector()
+        self._groups: dict[str, list[WindowInfo]] = {}
+        self._buttons: dict[str, Gtk.Button] = {}
+        self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
+        self._launcher = ApplicationLauncher()
+
+        self.set_decorated(False)
+        self.connect("destroy", lambda *_: Gtk.main_quit())
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
+        GtkLayerShell.set_exclusive_zone(self, self.HEIGHT)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_namespace(self, "wlroots-taskbar")
+
+        self._install_css()
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        launch_button = Gtk.Button(label="Launch")
+        launch_button.get_style_context().add_class("launch-button")
+        launch_button.connect("clicked", lambda *_: self._launcher.toggle())
+        bar.pack_start(launch_button, False, False, 0)
+        self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self._task_box.set_hexpand(True)
+        bar.pack_start(self._task_box, True, True, 0)
+        self._tray = SystemTray()
+        bar.pack_end(self._tray, False, False, 0)
+        self.add(bar)
+
+        # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
+        # request.  resize(1, 1) forces it to discard the previous allocation;
+        # the left/right anchors still make the compositor provide full width.
+        self.set_size_request(-1, self.HEIGHT)
+        self.resize(1, 1)
+        GLib.timeout_add(100, self._refresh_tick)
 
     def _install_css(self):
         provider = Gtk.CssProvider()
@@ -990,7 +1010,10 @@ class Taskbar(Gtk.Window):
 
 
 def main() -> int:
-    Taskbar().show_all()
+    taskbar = Taskbar()
+    statusbar = StatusBar()
+    taskbar.show_all()
+    statusbar.show_all()
     Gtk.main()
     return 0
 
