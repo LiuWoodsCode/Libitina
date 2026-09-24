@@ -823,8 +823,15 @@ class RunningWindow(Gtk.Window):
         .application-grid { background: #202020; padding: 8px; }
         .application-grid flowboxchild { padding: 0; }
         button.application-button { background: transparent; border: 0; border-radius: 0;
+            background-image: none; box-shadow: none; outline: none;
             color: white; min-height: 92px; padding: 8px 5px; }
-        button.application-button:hover { background: #3b4654; }
+        .application-grid flowboxchild,
+        .application-grid flowboxchild:hover,
+        .application-grid flowboxchild:selected,
+        .application-grid flowboxchild:focus {
+            background: transparent; background-image: none; border: 0;
+            box-shadow: none; outline: none; }
+        button.application-button:hover { background: #3b4654; background-image: none; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
