@@ -755,7 +755,7 @@ class StatusBar(Gtk.Window):
         self._clock.get_style_context().add_class("clock")
         bar.pack_start(self._clock, False, False, 0)
 
-        status_icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
             status_icons.pack_start(
                 self._status_placeholder_button(icon_type, tooltip, icon_path),
