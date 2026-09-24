@@ -842,23 +842,36 @@ class RunningWindow(Gtk.Window):
     def __init__(self, on_running_changed: Callable[[bool], None]):
         super().__init__(title="Running Applications")
         self._wayland = WaylandWindowCollector()
-        self._groups: dict[str, list[WindowInfo]] = {}
+        self._windows: dict[str, WindowInfo] = {}
         self._buttons: dict[str, Gtk.Button] = {}
+        self._long_press_gestures: dict[str, Gtk.GestureLongPress] = {}
+        self._button_signatures: dict[str, tuple[str, str]] = {}
+        self._suppress_clicks: set[str] = set()
+        self._active_window_menu: Gtk.Menu | None = None
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
         self._has_running: bool | None = None
         self._on_running_changed = on_running_changed
 
-        self.set_default_size(720, 36)
+        self.set_default_size(480, 420)
         self.connect("delete-event", self._on_delete)
 
         self._install_css()
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        self._task_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self._task_box.set_hexpand(True)
-        bar.pack_start(self._task_box, True, True, 0)
+        self._task_box.set_valign(Gtk.Align.START)
+        scroller.add(self._task_box)
+        content.pack_start(scroller, True, True, 0)
+
         self._tray = SystemTray()
-        bar.pack_end(self._tray, False, False, 0)
-        self.add(bar)
+        self._tray.set_halign(Gtk.Align.END)
+        content.pack_end(self._tray, False, False, 0)
+        self.add(content)
 
         GLib.timeout_add(100, self._refresh_tick)
 
@@ -876,7 +889,9 @@ class RunningWindow(Gtk.Window):
     def _install_css(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"""
-        button.taskbar-button { min-height: 28px; min-width: 34px; padding: 1px 6px; }
+        button.taskbar-button { min-height: 44px; padding: 4px 8px; }
+        button.taskbar-button label.window-title { font-weight: bold; }
+        button.taskbar-button label.application-name { font-size: 0.85em; opacity: 0.72; }
         button.tray-button { min-width: 32px; min-height: 12px; padding: 0; }
         button.system-status-button { min-width: 24px; min-height: 32px; padding: 0; }
         .clock { min-width: 48px; padding: 0 6px 0 1px; }
@@ -896,76 +911,156 @@ class RunningWindow(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _refresh_tick(self) -> bool:
-        groups: dict[str, list[WindowInfo]] = {}
-        for window in self._wayland.windows():
-            if window.title == self.get_title():
-                continue
-            groups.setdefault(window.group_key, []).append(window)
-        self._set_groups(groups)
+        windows = [
+            window for window in self._wayland.windows()
+            if window.title != self.get_title()
+        ]
+        windows.sort(key=lambda window: (
+            (window.app_id or window.title).casefold(),
+            window.title.casefold(),
+            window.key,
+        ))
+        self._set_windows(windows)
         return True
 
-    def _set_groups(self, groups: dict[str, list[WindowInfo]]) -> None:
-        old, new = set(self._buttons), set(groups)
+    def _set_windows(self, windows: list[WindowInfo]) -> None:
+        windows_by_key = {window.key: window for window in windows}
+        old, new = set(self._buttons), set(windows_by_key)
         for key in old - new:
             self._task_box.remove(self._buttons.pop(key))
-        for key in new - old:
+            self._long_press_gestures.pop(key, None)
+            self._button_signatures.pop(key, None)
+            self._suppress_clicks.discard(key)
+        for window in windows:
+            key = window.key
+            if key in self._buttons:
+                continue
             button = Gtk.Button()
             button.get_style_context().add_class("taskbar-button")
             button.connect("clicked", self._on_clicked, key)
             button.connect("button-press-event", self._on_button_press, key)
+            gesture = Gtk.GestureLongPress.new(button)
+            gesture.set_touch_only(False)
+            gesture.set_button(Gdk.BUTTON_PRIMARY)
+            gesture.connect("pressed", self._on_long_press, key)
+            gesture.connect("end", self._on_long_press_end, key)
             self._buttons[key] = button
+            self._long_press_gestures[key] = gesture
             self._task_box.pack_start(button, False, False, 0)
-        self._groups = groups
-        for key, button in self._buttons.items():
-            self._update_button(button, groups[key])
+        self._windows = windows_by_key
+        for position, window in enumerate(windows):
+            button = self._buttons[window.key]
+            self._task_box.reorder_child(button, position)
+            self._update_button(button, window)
         self._task_box.show_all()
-        has_running = bool(groups)
+        has_running = bool(windows)
         if has_running != self._has_running:
             self._has_running = has_running
             self._on_running_changed(has_running)
 
-    def _update_button(self, button: Gtk.Button, windows: list[WindowInfo]) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        icon = self._window_icon_image(windows[0])
-        if icon is not None:
-            box.pack_start(icon, False, False, 0)
-        old = button.get_child()
-        if old is not None:
-            button.remove(old)
-        button.add(box)
-        label = windows[0].title if len(windows) == 1 else f"{windows[0].app_id or windows[0].title} ({len(windows)})"
-        button.set_tooltip_text("\n".join([label] + [w.title for w in windows if w.title != label]))
+    def _update_button(self, button: Gtk.Button, window: WindowInfo) -> None:
+        signature = (window.title, window.app_id)
+        if self._button_signatures.get(window.key) != signature:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            icon = self._window_icon_image(window)
+            if icon is not None:
+                row.pack_start(icon, False, False, 0)
+
+            names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            names.set_hexpand(True)
+            title = Gtk.Label(label=window.title or "Window")
+            title.set_xalign(0)
+            title.set_ellipsize(Pango.EllipsizeMode.END)
+            title.get_style_context().add_class("window-title")
+            names.pack_start(title, False, False, 0)
+            if window.app_id:
+                application = Gtk.Label(label=window.app_id)
+                application.set_xalign(0)
+                application.set_ellipsize(Pango.EllipsizeMode.END)
+                application.get_style_context().add_class("application-name")
+                names.pack_start(application, False, False, 0)
+            row.pack_start(names, True, True, 0)
+
+            old = button.get_child()
+            if old is not None:
+                button.remove(old)
+            button.add(row)
+            button.set_tooltip_text(window.title)
+            self._button_signatures[window.key] = signature
+            button.show_all()
         style = button.get_style_context()
-        (style.add_class if any(w.active for w in windows) else style.remove_class)("active")
+        (style.add_class if window.active else style.remove_class)("active")
 
     def _on_clicked(self, _button, key: str) -> None:
-        windows = self._groups.get(key, [])
-        if len(windows) == 1:
-            self._wayland.manage_window(windows[0].window_id, "activate")
-        elif windows:
-            self._show_menu(windows, False)
+        if key in self._suppress_clicks:
+            self._suppress_clicks.discard(key)
+            return
+        window = self._windows.get(key)
+        if window is not None:
+            self._wayland.manage_window(window.window_id, "activate")
 
-    def _on_button_press(self, _button, event, key: str) -> bool:
+    def _on_button_press(self, button, event, key: str) -> bool:
         if event.button != Gdk.BUTTON_SECONDARY:
             return False
-        self._show_menu(self._groups.get(key, []), True)
+        window = self._windows.get(key)
+        if window is not None:
+            self._show_window_menu(window, button, event)
         return True
 
-    def _show_menu(self, windows: list[WindowInfo], management: bool) -> None:
+    def _on_long_press(
+            self, _gesture: Gtk.GestureLongPress, _x: float, _y: float,
+            key: str) -> None:
+        window = self._windows.get(key)
+        button = self._buttons.get(key)
+        if window is None or button is None:
+            return
+        self._suppress_clicks.add(key)
+        self._show_window_menu(window, button)
+
+    def _on_long_press_end(
+            self, _gesture: Gtk.GestureLongPress, _sequence,
+            key: str) -> None:
+        # Let GtkButton process the same release first; if it emits "clicked",
+        # _on_clicked consumes the suppression before this idle cleanup runs.
+        GLib.idle_add(self._clear_suppressed_click, key)
+
+    def _clear_suppressed_click(self, key: str) -> bool:
+        self._suppress_clicks.discard(key)
+        return GLib.SOURCE_REMOVE
+
+    def _show_window_menu(
+            self, window: WindowInfo, button: Gtk.Button,
+            event=None) -> None:
         menu = Gtk.Menu()
-        for window in windows:
-            title = Gtk.MenuItem(label=window.title)
-            title.connect("activate", lambda _i, w=window: self._wayland.manage_window(w.window_id, "activate"))
-            menu.append(title)
-            if management:
-                for label, action in (("Minimize", "minimize"), ("Restore", "restore"),
-                                      ("Maximize", "maximize"), ("Unmaximize", "unmaximize"), ("Close", "close")):
-                    item = Gtk.MenuItem(label=f"  {label}")
-                    item.connect("activate", lambda _i, w=window, a=action: self._wayland.manage_window(w.window_id, a))
-                    menu.append(item)
-                menu.append(Gtk.SeparatorMenuItem())
+        title = Gtk.MenuItem(label=window.title)
+        title.set_sensitive(False)
+        menu.append(title)
+        menu.append(Gtk.SeparatorMenuItem())
+        for label, action in (("Activate", "activate"), ("Minimize", "minimize"),
+                              ("Restore", "restore"), ("Maximize", "maximize"),
+                              ("Unmaximize", "unmaximize"), ("Close", "close")):
+            item = Gtk.MenuItem(label=label)
+            item.connect(
+                "activate",
+                lambda _item, window_id=window.window_id, selected_action=action:
+                    self._wayland.manage_window(window_id, selected_action),
+            )
+            menu.append(item)
         menu.show_all()
-        menu.popup_at_pointer(None)
+        self._active_window_menu = menu
+        menu.connect("deactivate", self._on_window_menu_closed)
+        if event is not None:
+            menu.popup_at_pointer(event)
+        else:
+            menu.popup_at_widget(
+                button,
+                Gdk.Gravity.SOUTH_WEST,
+                Gdk.Gravity.NORTH_WEST,
+                None,
+            )
+
+    def _on_window_menu_closed(self, _menu: Gtk.Menu) -> None:
+        self._active_window_menu = None
 
     def _window_icon_image(self, window: WindowInfo):
         kind, value = self._desktop_icon_spec(window.app_id, window.title)
