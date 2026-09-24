@@ -956,11 +956,17 @@ class RunningWindow(Gtk.Window):
 
 
 class Taskbar(Gtk.Window):
-    HEIGHT = 36
+    HEIGHT = 28
+    OSK_HEIGHT = 25
+    OSK_BUS_NAME = "sm.puri.OSK0"
+    OSK_OBJECT_PATH = "/sm/puri/OSK0"
+    OSK_INTERFACE = "sm.puri.OSK0"
 
     def __init__(self):
         super().__init__(title="Taskbar")
         self._no_running_programs = True
+        self._osk_proxy = None
+        self._osk_visible = False
         self._launcher = ApplicationLauncher()
         self._running = RunningWindow(self._on_running_changed)
 
@@ -976,19 +982,95 @@ class Taskbar(Gtk.Window):
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.NONE)
         GtkLayerShell.set_namespace(self, "wlroots-taskbar")
 
+        compact_css = Gtk.CssProvider()
+        compact_css.load_from_data(b"""
+        window.taskbar-compact button.launch-button {
+            font-size: 8px;
+            min-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        """)
+        Gtk.StyleContext.add_provider_for_screen(
+            self.get_screen(),
+            compact_css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        )
+
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self._bar = bar
         for label, callback in (
                 ("Launch", self._launcher.toggle),
                 ("Running", self._running.toggle)):
             button = Gtk.Button(label=label)
             button.get_style_context().add_class("launch-button")
+            button.set_tooltip_text(label)
             button.connect("clicked", lambda _button, action=callback: action())
             bar.pack_start(button, True, True, 0)
         self.add(bar)
 
         self.set_size_request(-1, self.HEIGHT)
         self.resize(1, 1)
+        self._watch_osk_visibility()
         GLib.idle_add(self._show_initial_launcher)
+
+    def _watch_osk_visibility(self) -> None:
+        Gio.DBusProxy.new_for_bus(
+            Gio.BusType.SESSION,
+            Gio.DBusProxyFlags.DO_NOT_AUTO_START,
+            None,
+            self.OSK_BUS_NAME,
+            self.OSK_OBJECT_PATH,
+            self.OSK_INTERFACE,
+            None,
+            self._on_osk_proxy_ready,
+        )
+
+    def _on_osk_proxy_ready(self, _source, result) -> None:
+        try:
+            self._osk_proxy = Gio.DBusProxy.new_for_bus_finish(result)
+        except GLib.Error as exc:
+            print(f"taskbar: unable to monitor Squeekboard: {exc}", file=sys.stderr)
+            return
+        self._osk_proxy.connect("g-properties-changed", self._on_osk_properties_changed)
+        self._osk_proxy.connect("notify::g-name-owner", self._on_osk_name_owner_changed)
+        self._sync_osk_visibility()
+
+    def _on_osk_properties_changed(self, _proxy, changed, _invalidated) -> None:
+        values = changed.unpack()
+        if "Visible" in values:
+            self._set_osk_visible(bool(values["Visible"]))
+
+    def _on_osk_name_owner_changed(self, _proxy, _property) -> None:
+        self._sync_osk_visibility()
+
+    def _sync_osk_visibility(self) -> None:
+        if self._osk_proxy is None or self._osk_proxy.get_name_owner() is None:
+            self._set_osk_visible(False)
+            return
+        visible = self._osk_proxy.get_cached_property("Visible")
+        self._set_osk_visible(bool(visible.unpack()) if visible is not None else False)
+
+    def _set_osk_visible(self, visible: bool) -> None:
+        if visible == self._osk_visible:
+            return
+        self._osk_visible = visible
+        # Keep only the compact strip reserved while Squeekboard is visible,
+        # placing its controls immediately below the keyboard.
+        GtkLayerShell.set_exclusive_zone(
+            self,
+            self.OSK_HEIGHT if visible else self.HEIGHT,
+        )
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        height = self.OSK_HEIGHT if visible else self.HEIGHT
+        self.set_size_request(-1, height)
+        self._bar.set_size_request(-1, height)
+        style = self.get_style_context()
+        if visible:
+            style.add_class("taskbar-compact")
+        else:
+            style.remove_class("taskbar-compact")
+        self.queue_resize()
 
     def _show_initial_launcher(self) -> bool:
         if self._no_running_programs:
