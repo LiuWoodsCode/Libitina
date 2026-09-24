@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import select
@@ -20,6 +21,7 @@ gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, GtkLayerShell, Pango
 
+from settings import wallpaper_enabled
 from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
 
 WLR_PROTOCOL_XML = """
@@ -534,11 +536,22 @@ class SystemTray(Gtk.Box):
 
 
 class ApplicationLauncher(Gtk.Window):
+    WALLPAPER_PATH = (
+        Path(__file__).resolve().parent / "assets/icons/backgrounds/zohran.png"
+    )
+
     def __init__(self):
         super().__init__(title="Applications")
         self._locked_open = False
+        self._wallpaper_enabled: bool | None = None
+        self._wallpaper_source = GdkPixbuf.Pixbuf.new_from_file(
+            str(self.WALLPAPER_PATH)
+        )
+        self._scaled_wallpaper: GdkPixbuf.Pixbuf | None = None
+        self._scaled_wallpaper_size: tuple[int, int] | None = None
         self.set_decorated(False)
         self.set_resizable(True)
+        self.get_style_context().add_class("application-launcher")
         self.connect("key-press-event", self._on_key_press)
 
         GtkLayerShell.init_for_window(self)
@@ -551,7 +564,66 @@ class ApplicationLauncher(Gtk.Window):
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
         GtkLayerShell.set_namespace(self, "application-launcher")
 
-        self.add(self._build_content())
+        overlay = Gtk.Overlay()
+        self._wallpaper_image = Gtk.Image()
+        self._wallpaper_image.set_hexpand(True)
+        self._wallpaper_image.set_vexpand(True)
+        self._wallpaper_image.set_halign(Gtk.Align.FILL)
+        self._wallpaper_image.set_valign(Gtk.Align.FILL)
+        self._wallpaper_image.connect(
+            "size-allocate", self._on_wallpaper_size_allocate
+        )
+        overlay.add(self._wallpaper_image)
+        overlay.add_overlay(self._build_content())
+        self.add(overlay)
+
+        self._sync_wallpaper()
+        GLib.timeout_add_seconds(1, self._sync_wallpaper)
+
+    def _sync_wallpaper(self) -> bool:
+        enabled = wallpaper_enabled()
+        if enabled != self._wallpaper_enabled:
+            self._wallpaper_enabled = enabled
+            style = self.get_style_context()
+            if enabled:
+                style.add_class("wallpaper-enabled")
+                self._update_wallpaper_image(
+                    self._wallpaper_image.get_allocated_width(),
+                    self._wallpaper_image.get_allocated_height(),
+                )
+            else:
+                style.remove_class("wallpaper-enabled")
+                self._wallpaper_image.clear()
+                self._scaled_wallpaper_size = None
+        return GLib.SOURCE_CONTINUE
+
+    def _on_wallpaper_size_allocate(
+            self, _image: Gtk.Image, allocation: Gdk.Rectangle) -> None:
+        if not self._wallpaper_enabled:
+            return
+        self._update_wallpaper_image(allocation.width, allocation.height)
+
+    def _update_wallpaper_image(self, width: int, height: int) -> None:
+        if width <= 0 or height <= 0:
+            return
+
+        source_width = self._wallpaper_source.get_width()
+        source_height = self._wallpaper_source.get_height()
+        scale = max(width / source_width, height / source_height)
+        viewport_size = (width, height)
+        if viewport_size != self._scaled_wallpaper_size:
+            scaled_width = max(width, math.ceil(source_width * scale))
+            scaled_height = max(height, math.ceil(source_height * scale))
+            cover = self._wallpaper_source.scale_simple(
+                scaled_width, scaled_height, GdkPixbuf.InterpType.BILINEAR
+            )
+            crop_x = (scaled_width - width) // 2
+            crop_y = (scaled_height - height) // 2
+            self._scaled_wallpaper = GdkPixbuf.Pixbuf.new_subpixbuf(
+                cover, crop_x, crop_y, width, height
+            )
+            self._scaled_wallpaper_size = viewport_size
+            self._wallpaper_image.set_from_pixbuf(self._scaled_wallpaper)
 
     def _build_content(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -805,11 +877,18 @@ class RunningWindow(Gtk.Window):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"""
         button.taskbar-button { min-height: 28px; min-width: 34px; padding: 1px 6px; }
-        button.tray-button { min-width: 32px; min-height: 32px; padding: 0; }
+        button.tray-button { min-width: 32px; min-height: 12px; padding: 0; }
         button.system-status-button { min-width: 24px; min-height: 32px; padding: 0; }
         .clock { min-width: 48px; padding: 0 6px 0 1px; }
         button.launch-button { min-height: 28px; padding: 1px 16px; }
         .launcher { padding: 7px; }
+        window.application-launcher.wallpaper-enabled .launcher,
+        window.application-launcher.wallpaper-enabled scrolledwindow,
+        window.application-launcher.wallpaper-enabled viewport,
+        window.application-launcher.wallpaper-enabled flowbox {
+            background-color: transparent;
+            background-image: none;
+        }
         .application-grid { padding: 8px; }
         .application-grid flowboxchild { padding: 0; }
         button.application-button { min-height: 92px; padding: 8px 5px; }
