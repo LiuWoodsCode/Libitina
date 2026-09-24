@@ -804,34 +804,15 @@ class RunningWindow(Gtk.Window):
     def _install_css(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"""
-        window { background: #202020; color: white; font-size: 12px; }
-        button.taskbar-button { background: #303030; border: 1px solid #505050; border-radius: 0;
-            color: white; min-height: 28px; min-width: 34px; padding: 1px 6px; }
-        button.taskbar-button:hover { background: #404040; }
-        button.taskbar-button.active { background: #34445a; border-color: #7fb5ff; }
-        button.tray-button { background: transparent; border: 0; border-radius: 0;
-            min-width: 32px; min-height: 32px; padding: 0; }
-        button.tray-button:hover { background: #404040; }
-        button.system-status-button { background: transparent; border: 0; border-radius: 0;
-            min-width: 24px; min-height: 32px; padding: 0; }
-        button.system-status-button:hover { background: #404040; }
-        .clock { color: white; min-width: 48px; padding: 0 6px 0 1px; font-size: 16px; }
-        button.launch-button { background: #3a3a3a; border: 1px solid #606060; border-radius: 0;
-            color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
-        button.launch-button:hover { background: #4a4a4a; }
-        .launcher { background: #202020; padding: 7px; }
-        .application-grid { background: #202020; padding: 8px; }
+        button.taskbar-button { min-height: 28px; min-width: 34px; padding: 1px 6px; }
+        button.tray-button { min-width: 32px; min-height: 32px; padding: 0; }
+        button.system-status-button { min-width: 24px; min-height: 32px; padding: 0; }
+        .clock { min-width: 48px; padding: 0 6px 0 1px; }
+        button.launch-button { min-height: 28px; padding: 1px 16px; }
+        .launcher { padding: 7px; }
+        .application-grid { padding: 8px; }
         .application-grid flowboxchild { padding: 0; }
-        button.application-button { background: transparent; border: 0; border-radius: 0;
-            background-image: none; box-shadow: none; outline: none;
-            color: white; min-height: 92px; padding: 8px 5px; }
-        .application-grid flowboxchild,
-        .application-grid flowboxchild:hover,
-        .application-grid flowboxchild:selected,
-        .application-grid flowboxchild:focus {
-            background: transparent; background-image: none; border: 0;
-            box-shadow: none; outline: none; }
-        button.application-button:hover { background: #3b4654; background-image: none; }
+        button.application-button { min-height: 92px; padding: 8px 5px; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
