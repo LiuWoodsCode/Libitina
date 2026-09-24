@@ -728,13 +728,13 @@ class ApplicationLauncher(Gtk.Window):
 
 
 class StatusBar(Gtk.Window):
-    HEIGHT = 32
-    STATUS_ICON_SIZE = 20
+    HEIGHT = 16
+    STATUS_ICON_SIZE = 16
     STATUS_PLACEHOLDERS = (
-        ("network", "Network", "assets/icons/network/wifi/dark/4.svg"),
-        ("bt", "Bluetooth", "assets/icons/settings/bluetooth.svg"),
-        ("audio", "Audio", "assets/icons/volume/3.svg"),
-        ("pwr", "Battery", "assets/icons/battery/normal/10.svg"),
+        ("network", "Network", "network-wireless-signal-excellent-symbolic"),
+        ("bt", "Bluetooth", "bluetooth-active-symbolic"),
+        ("audio", "Audio", "audio-volume-high-symbolic"),
+        ("pwr", "Battery", "battery-full-symbolic"),
     )
 
     def __init__(self):
@@ -772,20 +772,12 @@ class StatusBar(Gtk.Window):
         GLib.timeout_add_seconds(1, self._update_clock)
 
     def _status_placeholder_button(
-            self, icon_type: str, tooltip: str, relative_path: str) -> Gtk.Button:
+            self, icon_type: str, tooltip: str, icon_name: str) -> Gtk.Button:
         button = Gtk.Button()
         button.get_style_context().add_class("system-status-button")
-        icon_path = Path(__file__).resolve().parent / relative_path
-        try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                str(icon_path), self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE, False
-            )
-            button.add(_fixed_icon_image(pixbuf, self.STATUS_ICON_SIZE))
-        except GLib.Error as exc:
-            print(f"statusbar: could not load {icon_path}: {exc}", file=sys.stderr)
-            image = Gtk.Image()
-            image.set_size_request(self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE)
-            button.add(image)
+        image = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
+        image.set_pixel_size(self.STATUS_ICON_SIZE)
+        button.add(image)
         button.set_tooltip_text(tooltip)
         button.connect("clicked", self._show_status_placeholder, icon_type)
         return button
@@ -894,8 +886,8 @@ class RunningWindow(Gtk.Window):
         button.taskbar-button label.window-title { font-weight: bold; }
         button.taskbar-button label.application-name { font-size: 0.85em; opacity: 0.72; }
         button.tray-button { min-width: 32px; min-height: 12px; padding: 0; }
-        button.system-status-button { min-width: 24px; min-height: 32px; padding: 0; }
-        .clock { min-width: 48px; padding: 0 6px 0 1px; }
+        button.system-status-button { min-width: 20px; min-height: 0; padding: 0; border-width: 0; }
+        .clock { min-width: 48px; min-height: 0; padding: 0 6px 0 1px; }
         button.launch-button { min-height: 28px; padding: 1px 16px; }
         .launcher { padding: 7px; }
         window.application-launcher.wallpaper-enabled .launcher,
