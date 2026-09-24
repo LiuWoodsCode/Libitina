@@ -847,6 +847,7 @@ class RunningWindow(Gtk.Window):
         self._long_press_gestures: dict[str, Gtk.GestureLongPress] = {}
         self._button_signatures: dict[str, tuple[str, str]] = {}
         self._suppress_clicks: set[str] = set()
+        self._pending_long_presses: set[str] = set()
         self._active_window_menu: Gtk.Menu | None = None
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
         self._has_running: bool | None = None
@@ -931,6 +932,7 @@ class RunningWindow(Gtk.Window):
             self._long_press_gestures.pop(key, None)
             self._button_signatures.pop(key, None)
             self._suppress_clicks.discard(key)
+            self._pending_long_presses.discard(key)
         for window in windows:
             key = window.key
             if key in self._buttons:
@@ -1015,14 +1017,26 @@ class RunningWindow(Gtk.Window):
         if window is None or button is None:
             return
         self._suppress_clicks.add(key)
-        self._show_window_menu(window, button)
+        self._pending_long_presses.add(key)
 
     def _on_long_press_end(
             self, _gesture: Gtk.GestureLongPress, _sequence,
             key: str) -> None:
+        if key in self._pending_long_presses:
+            self._pending_long_presses.discard(key)
+            # Open only after the release event has finished. Otherwise the
+            # release which completes the long press also dismisses the menu.
+            GLib.idle_add(self._open_long_press_menu, key)
         # Let GtkButton process the same release first; if it emits "clicked",
         # _on_clicked consumes the suppression before this idle cleanup runs.
         GLib.idle_add(self._clear_suppressed_click, key)
+
+    def _open_long_press_menu(self, key: str) -> bool:
+        window = self._windows.get(key)
+        button = self._buttons.get(key)
+        if window is not None and button is not None:
+            self._show_window_menu(window, button)
+        return GLib.SOURCE_REMOVE
 
     def _clear_suppressed_click(self, key: str) -> bool:
         self._suppress_clicks.discard(key)
