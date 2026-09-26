@@ -18,13 +18,16 @@ import copy
 import datetime as _dt
 import json
 import os
+import pty
 import re
+import select
 import shlex
 import signal
 import socket
 import sys
 import threading
 import time
+import tty
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -551,7 +554,7 @@ class ModemState:
 
 
 class ATSession(threading.Thread):
-    def __init__(self, modem: ModemState, conn: socket.socket, peer: str = "unix"):
+    def __init__(self, modem: ModemState, conn: Any, peer: str = "unix"):
         super().__init__(daemon=True, name=f"at-{id(self):x}")
         self.modem = modem
         self.conn = conn
@@ -1569,7 +1572,7 @@ class ATSession(threading.Thread):
 class DebugConsole(cmd.Cmd):
     intro = (
         "MeVeSo ModemSim debug console. Type 'help' for commands.\n"
-        "AT traffic is served separately over the Unix socket."
+        "AT traffic is served separately over the configured transport."
     )
     prompt = "modemsim> "
 
@@ -1889,7 +1892,7 @@ class DebugConsole(cmd.Cmd):
             print("Usage: config get KEY | config set KEY JSON_VALUE | config save")
 
     def do_verbose(self, arg: str) -> None:
-        """verbose [on|off]  -- enable/disable the complete socket transcript."""
+        """verbose [on|off]  -- enable/disable the complete AT transcript."""
         if arg.strip():
             self.modem.verbose = arg.strip().lower() in ("on", "1", "true", "yes")
         print(f"Verbose transcript {'enabled' if self.modem.verbose else 'disabled'}.")
@@ -1914,7 +1917,7 @@ class DebugConsole(cmd.Cmd):
         print(f"Call:            {call if call else 'none'}")
 
     def do_clients(self, arg: str) -> None:
-        """clients  -- list attached AT socket clients."""
+        """clients  -- list attached AT clients."""
         with self.modem.lock:
             sessions = list(self.modem.sessions)
         if not sessions:
@@ -1970,6 +1973,62 @@ class DebugConsole(cmd.Cmd):
 # ---------------------------------- server ------------------------------------
 
 
+class PTYConnection:
+    """Small socket-like wrapper around a PTY master file descriptor."""
+
+    def __init__(self, fd: int):
+        self.fd = fd
+        self.closed = threading.Event()
+
+    def recv(self, size: int) -> bytes:
+        # A timeout keeps shutdown responsive even on platforms where closing a
+        # descriptor from another thread does not wake a blocked read.
+        while not self.closed.is_set():
+            readable, _, _ = select.select([self.fd], [], [], 0.5)
+            if readable:
+                return os.read(self.fd, size)
+        return b""
+
+    def sendall(self, data: bytes) -> None:
+        view = memoryview(data)
+        while view and not self.closed.is_set():
+            written = os.write(self.fd, view)
+            view = view[written:]
+
+    def shutdown(self, how: int) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self.closed.is_set():
+            return
+        self.closed.set()
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+
+
+def start_console_and_signals(modem: ModemState, no_console: bool) -> None:
+    if not no_console:
+        console = DebugConsole(modem)
+        threading.Thread(target=console.cmdloop, name="debug-console", daemon=True).start()
+
+    def stop_handler(signum, frame):  # type: ignore[no-untyped-def]
+        modem.stop_event.set()
+
+    signal.signal(signal.SIGINT, stop_handler)
+    signal.signal(signal.SIGTERM, stop_handler)
+
+
+def print_profile(modem: ModemState) -> None:
+    print(
+        f"Profile: {modem.cfg['carrier_long']} {modem.cfg['plmn']}, "
+        f"{modem.rat}, {modem.cfg['msisdn']}, +CSQ {modem.cfg['rssi']}"
+    )
+    print("Packet service control succeeds; all user-plane bytes remain in a local sink.")
+    print(f"Configuration: {modem.config_path}")
+
+
 def serve(socket_path: str, modem: ModemState, no_console: bool = False) -> int:
     if os.path.exists(socket_path):
         if not stat_is_socket(socket_path):
@@ -1984,21 +2043,8 @@ def serve(socket_path: str, modem: ModemState, no_console: bool = False) -> int:
     server.settimeout(0.5)
 
     print(f"MeVeSo ModemSim listening on unix:{socket_path}")
-    print(
-        f"Profile: {modem.cfg['carrier_long']} {modem.cfg['plmn']}, "
-        f"{modem.rat}, {modem.cfg['msisdn']}, +CSQ {modem.cfg['rssi']}"
-    )
-    print("Packet service control succeeds; all user-plane bytes remain in a local sink.")
-    print(f"Configuration: {modem.config_path}")
-    if not no_console:
-        console = DebugConsole(modem)
-        threading.Thread(target=console.cmdloop, name="debug-console", daemon=True).start()
-
-    def stop_handler(signum, frame):  # type: ignore[no-untyped-def]
-        modem.stop_event.set()
-
-    signal.signal(signal.SIGINT, stop_handler)
-    signal.signal(signal.SIGTERM, stop_handler)
+    print_profile(modem)
+    start_console_and_signals(modem, no_console)
 
     try:
         while not modem.stop_event.is_set():
@@ -2025,6 +2071,51 @@ def serve(socket_path: str, modem: ModemState, no_console: bool = False) -> int:
     return 0
 
 
+def serve_pty(link_path: str, modem: ModemState, no_console: bool = False) -> int:
+    master_fd, slave_fd = pty.openpty()
+    slave_path = os.ttyname(slave_fd)
+    tty.setraw(slave_fd)
+    link_path = os.path.abspath(link_path)
+    made_link = False
+
+    try:
+        if link_path != slave_path:
+            if os.path.lexists(link_path):
+                raise OSError(f"refusing to replace existing PTY path: {link_path}")
+            os.symlink(slave_path, link_path)
+            made_link = True
+
+        print(f"MeVeSo ModemSim listening on pty:{link_path} -> {slave_path}")
+        print_profile(modem)
+        start_console_and_signals(modem, no_console)
+
+        connection = PTYConnection(master_fd)
+        session = ATSession(modem, connection, peer="pty")
+        session.start()
+        while not modem.stop_event.wait(0.5):
+            pass
+    except OSError as error:
+        print(f"Could not create PTY {link_path}: {error}", file=sys.stderr)
+        return 2
+    finally:
+        modem.shutdown()
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+        try:
+            os.close(slave_fd)
+        except OSError:
+            pass
+        if made_link:
+            try:
+                if os.path.islink(link_path) and os.readlink(link_path) == slave_path:
+                    os.unlink(link_path)
+            except OSError:
+                pass
+    return 0
+
+
 def stat_is_socket(path: str) -> bool:
     import stat
 
@@ -2037,7 +2128,12 @@ def stat_is_socket(path: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="MeVeSo stateful 3GPP AT modem and USIM emulator")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help=f"JSON configuration (default: {DEFAULT_CONFIG})")
-    parser.add_argument("--socket", help="Unix socket path (default: socket_path in config.json)")
+    transport = parser.add_mutually_exclusive_group()
+    transport.add_argument("--socket", help="Unix socket path (default: socket_path in config.json)")
+    transport.add_argument(
+        "--pty", nargs="?", const="/dev/ttyMeVeSo", metavar="PATH",
+        help="use a pseudo-terminal, optionally linked at PATH (default: /dev/ttyMeVeSo)",
+    )
     parser.add_argument("--no-console", action="store_true", help="disable the local stdin debug console")
     transcript = parser.add_mutually_exclusive_group()
     transcript.add_argument("--verbose", action="store_true", help="force complete AT traffic logging")
@@ -2055,6 +2151,8 @@ def main() -> int:
         verbose = False
     socket_path = args.socket or str(cfg.get("socket_path", "/tmp/meveso-modem.sock"))
     modem = ModemState(cfg=cfg, config_path=args.config.resolve(), verbose=verbose)
+    if args.pty:
+        return serve_pty(args.pty, modem, no_console=args.no_console)
     return serve(socket_path, modem, no_console=args.no_console)
 
 

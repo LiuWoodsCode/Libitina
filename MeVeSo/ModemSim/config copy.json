@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "socket_path": "/tmp/meveso-modem.sock",
+  "manufacturer": "Team Salvato",
+  "model": "Libitina Baseband",
+  "revision": "1.0.0",
+  "serial_number": "MEVESO00000001",
+  "imei": "356938035643809",
+  "imeisv": "3569380356438099",
+  "imsi": "310410123456789",
+  "iccid": "89014103211118510720",
+  "eid": "89049032000000000000000000000001",
+  "msisdn": "+15550100101",
+  "carrier_long": "Grizzco",
+  "carrier_short": "GRIZZCO",
+  "plmn": "310410",
+  "mcc": "310",
+  "mnc": "410",
+  "spn": "Grizzco",
+  "rat": "LTE",
+  "band": 12,
+  "channel": 5110,
+  "lac": "01A2",
+  "tac": "00A102",
+  "cell_id": "0ABCDEF0",
+  "physical_cell_id": 321,
+  "registered": true,
+  "roaming": false,
+  "packet_attached": true,
+  "rssi": 24,
+  "ber": 99,
+  "rscp": 255,
+  "ecno": 255,
+  "rsrq": 25,
+  "rsrp": 65,
+  "sinr_db": 18,
+  "smsc": "+13123149810",
+  "incoming_number": "+14244879494",
+  "incoming_sms": "This is a test SMS",
+  "cmas_text": ":3",
+  "cmas_message_id": 4370,
+  "sms_capacity": 255,
+  "sim_state": "READY",
+  "sim_pin": "1234",
+  "sim_puk": "12345678",
+  "pin_required_at_start": false,
+  "pin_attempts": 3,
+  "puk_attempts": 10,
+  "battery_percent": 85,
+  "battery_mv": 4060,
+  "battery_charging": true,
+  "temperature_c": 31.5,
+  "clock_offset_seconds": 0,
+  "ring_interval_seconds": 3.0,
+  "fake_dns": ["192.0.2.53", "2001:db8::53"],
+  "pdp_contexts": [
+    {
+      "cid": 1,
+      "type": "IPV4V6",
+      "apn": "nxtgenphone",
+      "ipv4": "192.0.2.2",
+      "ipv6": "2001:db8::2",
+      "active": false
+    },
+    {
+      "cid": 2,
+      "type": "IP",
+      "apn": "ims",
+      "ipv4": "198.51.100.2",
+      "ipv6": "",
+      "active": false
+    }
+  ],
+  "available_operators": [
+    {
+      "status": 2,
+      "long": "Grizzco",
+      "short": "GRIZZCO",
+      "plmn": "310410",
+      "rat": "LTE"
+    }
+  ],
+  "phonebook": [
+    {
+      "index": 1,
+      "number": "+14244879494",
+      "type": 145,
+      "name": "Test Caller"
+    }
+  ],
+  "debug_verbose": true
+}
