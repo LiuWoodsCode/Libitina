@@ -1,0 +1,1 @@
+Provides a workaround for a battery reporting issue in the Maxim max1704 driver in the mainline Linux kernel fork for the MSM8974.

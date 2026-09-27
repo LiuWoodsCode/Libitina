@@ -1,0 +1,11 @@
+[Unit]
+Description=Workaround broken battery status reporting on hammerhead
+After=upower.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/upower-ac-watch
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
