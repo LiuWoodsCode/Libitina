@@ -30,8 +30,9 @@ from typing import Optional
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gio, GLib, Gdk, Gtk
+gi.require_version("Gdk", "3.0")
 
+from gi.repository import Gio, GLib, Gdk, Gtk
 
 APP_ID = "io.github.pixelprowler.PhoshGSettingsEditor"
 APP_NAME = "GSettings Editor"
