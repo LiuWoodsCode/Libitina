@@ -4,6 +4,15 @@ Project Libitina is a project to make Linux on mobile phones appeal to regular u
 > [!WARNING]
 > You really ahouldn't be using this on your main device right now, as it is very early in development.
 
+# Bases
+There are 2 base operating system options available, Nura and Debian.
+
+## Nura
+Nura, formerly postmarketOS, is a Linux distro that is made for mobile devices.
+
+## Debian
+Debian is a Linux distro.
+ 
 # Tested devices
 Currently, this project has only been tested on the LG Google Nexus 5 (hammerhead) running Nura edge and the Phosh shell.
 
