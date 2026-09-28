@@ -1,1 +1,3 @@
-python3 main.py
+#!/bin/sh
+
+exec python3 main.py "$@"
