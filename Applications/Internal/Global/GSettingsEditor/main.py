@@ -32,10 +32,21 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 
-from gi.repository import Gio, GLib, Gdk, Gtk
+from gi.repository import Gio, GLib, Gdk, Gtk, Pango
 
 APP_ID = "io.github.pixelprowler.PhoshGSettingsEditor"
 APP_NAME = "GSettings Editor"
+
+
+def make_label_mobile_friendly(
+    label: Gtk.Label,
+    max_width_chars: int = 42,
+):
+    """Allow long settings identifiers and values to fit narrow displays."""
+    label.set_line_wrap(True)
+    label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    label.set_max_width_chars(max_width_chars)
+    label.set_hexpand(True)
 
 
 def escape_markup(text: str) -> str:
@@ -97,7 +108,8 @@ class SchemaPathDialog(Gtk.Dialog):
             destroy_with_parent=True,
         )
 
-        self.set_default_size(420, -1)
+        self.set_default_size(360, -1)
+        self.set_size_request(280, -1)
 
         self.add_button("_Cancel", Gtk.ResponseType.CANCEL)
         self.add_button("_Open", Gtk.ResponseType.OK)
@@ -108,7 +120,7 @@ class SchemaPathDialog(Gtk.Dialog):
 
         title = Gtk.Label()
         title.set_xalign(0)
-        title.set_line_wrap(True)
+        make_label_mobile_friendly(title)
         title.set_markup(
             "<b>This schema requires a path.</b>"
         )
@@ -116,7 +128,7 @@ class SchemaPathDialog(Gtk.Dialog):
 
         explanation = Gtk.Label()
         explanation.set_xalign(0)
-        explanation.set_line_wrap(True)
+        make_label_mobile_friendly(explanation)
         explanation.set_text(
             f"{schema_id} is a relocatable GSettings schema. "
             "Enter the object path whose settings you want to inspect."
@@ -125,7 +137,7 @@ class SchemaPathDialog(Gtk.Dialog):
 
         example = Gtk.Label()
         example.set_xalign(0)
-        example.set_line_wrap(True)
+        make_label_mobile_friendly(example)
         example.set_text(
             "A GSettings path must begin and end with '/'.\n"
             "Example: /org/example/application/profile1/"
@@ -140,7 +152,7 @@ class SchemaPathDialog(Gtk.Dialog):
 
         self.error_label = Gtk.Label()
         self.error_label.set_xalign(0)
-        self.error_label.set_line_wrap(True)
+        make_label_mobile_friendly(self.error_label)
         self.error_label.get_style_context().add_class("error")
         content.pack_start(self.error_label, False, False, 0)
 
@@ -205,7 +217,8 @@ class ValueEditorDialog(Gtk.Dialog):
 
         self.schema_key = schema.get_key(key_name)
 
-        self.set_default_size(560, 620)
+        self.set_default_size(360, 620)
+        self.set_size_request(280, 360)
 
         self.add_button("_Close", Gtk.ResponseType.CLOSE)
 
@@ -234,14 +247,14 @@ class ValueEditorDialog(Gtk.Dialog):
         if summary:
             label = Gtk.Label()
             label.set_xalign(0)
-            label.set_line_wrap(True)
+            make_label_mobile_friendly(label)
             label.set_markup(f"<b>{escape_markup(summary)}</b>")
             body.pack_start(label, False, False, 0)
 
         if description:
             label = Gtk.Label()
             label.set_xalign(0)
-            label.set_line_wrap(True)
+            make_label_mobile_friendly(label)
             label.set_selectable(True)
             label.set_text(description)
             body.pack_start(label, False, False, 0)
@@ -316,7 +329,7 @@ class ValueEditorDialog(Gtk.Dialog):
 
         syntax = Gtk.Label()
         syntax.set_xalign(0)
-        syntax.set_line_wrap(True)
+        make_label_mobile_friendly(syntax)
         syntax.set_text(
             "Values use GVariant syntax. For string keys, plain text is "
             "also accepted."
@@ -345,13 +358,13 @@ class ValueEditorDialog(Gtk.Dialog):
 
         self.error_label = Gtk.Label()
         self.error_label.set_xalign(0)
-        self.error_label.set_line_wrap(True)
+        make_label_mobile_friendly(self.error_label)
         self.error_label.get_style_context().add_class("error")
         body.pack_start(self.error_label, False, False, 0)
 
         self.writable_label = Gtk.Label()
         self.writable_label.set_xalign(0)
-        self.writable_label.set_line_wrap(True)
+        make_label_mobile_friendly(self.writable_label)
         body.pack_start(self.writable_label, False, False, 0)
 
         button_box = Gtk.Box(
@@ -389,7 +402,7 @@ class ValueEditorDialog(Gtk.Dialog):
         label = Gtk.Label()
         label.set_xalign(0)
         label.set_selectable(True)
-        label.set_line_wrap(True)
+        make_label_mobile_friendly(label)
         label.set_markup(
             f"<span size='x-large'><b>"
             f"{escape_markup(self.key_name)}"
@@ -414,7 +427,7 @@ class ValueEditorDialog(Gtk.Dialog):
         value_label = Gtk.Label()
         value_label.set_xalign(0)
         value_label.set_yalign(0)
-        value_label.set_line_wrap(True)
+        make_label_mobile_friendly(value_label, 36)
         value_label.set_selectable(True)
         value_label.set_text(value)
 
@@ -607,6 +620,7 @@ class KeyRow(Gtk.ListBoxRow):
 
         name = Gtk.Label()
         name.set_xalign(0)
+        make_label_mobile_friendly(name)
         name.set_markup(
             f"<b>{escape_markup(key_name)}</b>"
         )
@@ -616,8 +630,7 @@ class KeyRow(Gtk.ListBoxRow):
         if summary:
             summary_label = Gtk.Label()
             summary_label.set_xalign(0)
-            summary_label.set_line_wrap(True)
-            summary_label.set_max_width_chars(60)
+            make_label_mobile_friendly(summary_label)
             summary_label.set_text(summary)
             box.pack_start(
                 summary_label,
@@ -636,7 +649,7 @@ class KeyRow(Gtk.ListBoxRow):
 
         details = Gtk.Label()
         details.set_xalign(0)
-        details.set_line_wrap(True)
+        make_label_mobile_friendly(details)
         details.set_selectable(True)
         details.get_style_context().add_class("dim-label")
         details.set_text(
@@ -666,7 +679,7 @@ class SchemaRow(Gtk.ListBoxRow):
 
         name = Gtk.Label()
         name.set_xalign(0)
-        name.set_line_wrap(True)
+        make_label_mobile_friendly(name)
         name.set_markup(
             f"<b>{escape_markup(schema_id)}</b>"
         )
@@ -676,7 +689,7 @@ class SchemaRow(Gtk.ListBoxRow):
 
         detail = Gtk.Label()
         detail.set_xalign(0)
-        detail.set_line_wrap(True)
+        make_label_mobile_friendly(detail)
         detail.get_style_context().add_class("dim-label")
 
         if path is None:
@@ -715,7 +728,28 @@ class GSettingsEditorWindow(Gtk.ApplicationWindow):
     def build_headerbar(self):
         self.header = Gtk.HeaderBar()
         self.header.set_show_close_button(True)
-        self.header.set_title(APP_NAME)
+
+        title_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=0,
+        )
+        self.header_title = Gtk.Label()
+        self.header_title.set_single_line_mode(True)
+        self.header_title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.header_title.set_max_width_chars(24)
+        self.header_title.get_style_context().add_class("title")
+        title_box.pack_start(self.header_title, True, True, 0)
+
+        self.header_subtitle = Gtk.Label()
+        self.header_subtitle.set_single_line_mode(True)
+        self.header_subtitle.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.header_subtitle.set_max_width_chars(24)
+        self.header_subtitle.set_no_show_all(True)
+        self.header_subtitle.get_style_context().add_class("subtitle")
+        title_box.pack_start(self.header_subtitle, True, True, 0)
+
+        self.header.set_custom_title(title_box)
+        self.set_header_title(APP_NAME)
 
         self.back_button = Gtk.Button.new_from_icon_name(
             "go-previous-symbolic",
@@ -726,17 +760,6 @@ class GSettingsEditorWindow(Gtk.ApplicationWindow):
         self.back_button.set_no_show_all(True)
         self.header.pack_start(self.back_button)
 
-        self.refresh_button = Gtk.Button.new_from_icon_name(
-            "view-refresh-symbolic",
-            Gtk.IconSize.BUTTON,
-        )
-        self.refresh_button.set_tooltip_text("Refresh")
-        self.refresh_button.connect(
-            "clicked",
-            self.on_refresh,
-        )
-        self.header.pack_end(self.refresh_button)
-
         menu_button = Gtk.MenuButton()
         menu_button.set_image(
             Gtk.Image.new_from_icon_name(
@@ -746,13 +769,27 @@ class GSettingsEditorWindow(Gtk.ApplicationWindow):
         )
 
         menu = Gio.Menu()
+        menu.append("Refresh", "win.refresh")
         menu.append("About", "app.about")
         menu.append("Quit", "app.quit")
         menu_button.set_menu_model(menu)
 
         self.header.pack_end(menu_button)
 
+        refresh_action = Gio.SimpleAction.new("refresh", None)
+        refresh_action.connect("activate", self.on_refresh)
+        self.add_action(refresh_action)
+
         self.set_titlebar(self.header)
+
+    def set_header_title(
+        self,
+        title: str,
+        subtitle: Optional[str] = None,
+    ):
+        self.header_title.set_text(title)
+        self.header_subtitle.set_text(subtitle or "")
+        self.header_subtitle.set_visible(bool(subtitle))
 
     def build_ui(self):
         self.stack = Gtk.Stack()
@@ -975,12 +1012,10 @@ class GSettingsEditorWindow(Gtk.ApplicationWindow):
         self.key_search.set_text("")
         self.stack.set_visible_child_name("keys")
 
-        self.header.set_title(schema_id)
-
-        if path is None:
-            self.header.set_subtitle(current_path)
-        else:
-            self.header.set_subtitle(None)
+        self.set_header_title(
+            schema_id,
+            current_path if path is None else None,
+        )
 
         self.back_button.show()
 
@@ -1132,11 +1167,10 @@ class GSettingsEditorWindow(Gtk.ApplicationWindow):
         self.current_settings = None
         self.current_path = None
 
-        self.header.set_title(APP_NAME)
-        self.header.set_subtitle(None)
+        self.set_header_title(APP_NAME)
         self.back_button.hide()
 
-    def on_refresh(self, _button):
+    def on_refresh(self, *_args):
         page = self.stack.get_visible_child_name()
 
         if page == "schemas":
@@ -1164,9 +1198,12 @@ class GSettingsEditorApplication(Gtk.Application):
             application_id=APP_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
+        self.interface_settings: Optional[Gio.Settings] = None
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+
+        self.watch_color_scheme()
 
         quit_action = Gio.SimpleAction.new(
             "quit",
@@ -1187,6 +1224,49 @@ class GSettingsEditorApplication(Gtk.Application):
             self.on_about,
         )
         self.add_action(about_action)
+
+    def watch_color_scheme(self):
+        """Make this GTK 3 app follow GNOME's current appearance setting."""
+        schema_source = Gio.SettingsSchemaSource.get_default()
+        if schema_source is None:
+            return
+
+        schema = schema_source.lookup(
+            "org.gnome.desktop.interface",
+            True,
+        )
+        if schema is None or not schema.has_key("color-scheme"):
+            return
+
+        self.interface_settings = Gio.Settings.new_full(
+            schema,
+            None,
+            None,
+        )
+        self.interface_settings.connect(
+            "changed::color-scheme",
+            self.on_color_scheme_changed,
+        )
+        self.apply_color_scheme()
+
+    def on_color_scheme_changed(self, *_args):
+        self.apply_color_scheme()
+
+    def apply_color_scheme(self):
+        if self.interface_settings is None:
+            return
+
+        gtk_settings = Gtk.Settings.get_default()
+        if gtk_settings is None:
+            return
+
+        color_scheme = self.interface_settings.get_string(
+            "color-scheme"
+        )
+        gtk_settings.set_property(
+            "gtk-application-prefer-dark-theme",
+            color_scheme == "prefer-dark",
+        )
 
     def do_activate(self):
         window = self.props.active_window
