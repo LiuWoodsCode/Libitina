@@ -222,6 +222,12 @@ class WaylandWindowCollector:
             from pywayland.scanner.protocol import Protocol
         except Exception:
             return None
+        package_name = "taskbar_wayland_protocols"
+        # A failed import can leave the package cached after its temporary
+        # directory has gone away. Clear it before each generation attempt.
+        for name in list(sys.modules):
+            if name == package_name or name.startswith(f"{package_name}."):
+                del sys.modules[name]
         try:
             with tempfile.TemporaryDirectory(prefix="taskbar_pywayland_") as directory:
                 root = Path(directory)
@@ -232,7 +238,11 @@ class WaylandWindowCollector:
                 wayland = package / "wayland"
                 wayland.mkdir()
                 (wayland / "__init__.py").write_text(
-                    "from pywayland.protocol.wayland import WlOutput, WlSeat, WlSurface\n", encoding="utf-8"
+                    "from pywayland.protocol.wayland import WlOutput, WlSeat, WlSurface\n"
+                    "WlOutputProxy = WlOutput.proxy_class\n"
+                    "WlSeatProxy = WlSeat.proxy_class\n"
+                    "WlSurfaceProxy = WlSurface.proxy_class\n",
+                    encoding="utf-8",
                 )
                 xml_path.write_text(textwrap.dedent(WLR_PROTOCOL_XML).strip(), encoding="utf-8")
                 Protocol.parse_file(str(xml_path)).output(str(package), {
@@ -247,6 +257,9 @@ class WaylandWindowCollector:
                 finally:
                     sys.path.remove(str(root))
         except Exception as exc:
+            for name in list(sys.modules):
+                if name == package_name or name.startswith(f"{package_name}."):
+                    del sys.modules[name]
             print(f"taskbar: failed to generate wlr protocol: {exc}", file=sys.stderr)
             return None
 
