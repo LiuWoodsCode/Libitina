@@ -2,7 +2,7 @@
 """A small, touch-friendly Wayland lock screen for the Yui shell.
 The passcode is checked against the current Unix user's password through PAM.
 No password or PIN is stored by this program.  The PAM service defaults to
-``phosh`` and can be overridden with the YUI_PAM_SERVICE environment variable.
+``login`` and can be overridden with the YUI_PAM_SERVICE environment variable.
 """
 from __future__ import annotations
 import ctypes
@@ -45,8 +45,8 @@ class AuthenticationResult:
     accepted: bool
     message: str
 class PamAuthenticator:
-    """Minimal libpam client following Phosh's lock-screen auth flow."""
-    def __init__(self, service: str = "phosh") -> None:
+    """Minimal libpam client for authenticating the current user."""
+    def __init__(self, service: str = "login") -> None:
         library_name = ctypes.util.find_library("pam")
         if not library_name:
             raise RuntimeError("libpam is not installed")
@@ -269,7 +269,7 @@ class LockScreen(Gtk.Window):
         self._date_label.set_text(now.strftime("%A, %B %-d"))
         return GLib.SOURCE_CONTINUE
 def main() -> int:
-    service = os.environ.get("YUI_PAM_SERVICE", "phosh")
+    service = os.environ.get("YUI_PAM_SERVICE", "login")
     try:
         authenticator = PamAuthenticator(service)
     except RuntimeError as error:
