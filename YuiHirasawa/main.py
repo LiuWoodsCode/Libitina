@@ -7,6 +7,7 @@ import sys
 import tempfile
 import textwrap
 import threading
+import time
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
@@ -132,32 +133,51 @@ class WaylandWindowCollector:
             print(f"taskbar: pywayland unavailable: {exc}", file=sys.stderr)
             return
 
-        try:
-            display = Display()
-            display.connect()
-            registry = display.get_registry()
-            registry.dispatcher["global"] = self._on_global
-            registry.dispatcher["global_remove"] = self._on_global_remove
-            display.roundtrip()
+        while True:
+            self._globals.clear()
+            self._seat = None
+            display = None
+            try:
+                display = Display()
+                display.connect()
+                self._collect(display, WlSeat)
+            except Exception as exc:
+                print(f"taskbar: Wayland collector failed: {exc}", file=sys.stderr)
+            finally:
+                self._handles.clear()
+                self._windows = []
+                if display is not None:
+                    try:
+                        display.disconnect()
+                    except Exception as exc:
+                        print(f"taskbar: Wayland disconnect failed: {exc}", file=sys.stderr)
+            time.sleep(5)
 
-            seat = self._globals.get("wl_seat")
-            if seat:
+    def _collect(self, display, seat_interface) -> None:
+        registry = display.get_registry()
+        registry.dispatcher["global"] = self._on_global
+        registry.dispatcher["global_remove"] = self._on_global_remove
+        display.roundtrip()
+
+        if not self._bind_wlr(registry):
+            return
+
+        # The seat is only needed to activate a window. A failed seat bind
+        # must not prevent the toplevel manager from listing windows.
+        seat = self._globals.get("wl_seat")
+        if seat:
+            try:
                 name, version = seat
-                self._seat = registry.bind(name, WlSeat, min(version, 9))
+                self._seat = registry.bind(name, seat_interface, min(version, seat_interface.version))
+            except Exception as exc:
+                print(f"taskbar: unable to bind Wayland seat: {exc}", file=sys.stderr)
 
-            if not self._bind_wlr(registry):
-                print("taskbar: compositor does not expose zwlr_foreign_toplevel_manager_v1", file=sys.stderr)
-                display.disconnect()
-                return
-
-            display.roundtrip()
-            while True:
-                self._drain_commands()
-                display.flush()
-                readable, _, _ = select.select([display.get_fd()], [], [], 0.1)
-                display.dispatch(block=bool(readable))
-        except Exception as exc:
-            print(f"taskbar: Wayland collector failed: {exc}", file=sys.stderr)
+        display.roundtrip()
+        while True:
+            self._drain_commands()
+            display.flush()
+            readable, _, _ = select.select([display.get_fd()], [], [], 0.1)
+            display.dispatch(block=bool(readable))
 
     def _on_global(self, _registry, name: int, interface: str, version: int) -> None:
         self._globals[_text(interface)] = (int(name), int(version))
@@ -170,9 +190,11 @@ class WaylandWindowCollector:
     def _bind_wlr(self, registry) -> bool:
         item = self._globals.get("zwlr_foreign_toplevel_manager_v1")
         if item is None:
+            print("taskbar: compositor does not expose zwlr_foreign_toplevel_manager_v1", file=sys.stderr)
             return False
         cls = self._import_protocol_class() or self._generate_wlr_protocol_class()
         if cls is None:
+            print("taskbar: unable to load foreign-toplevel protocol", file=sys.stderr)
             return False
         name, version = item
         manager = registry.bind(name, cls, min(version, 3))
@@ -200,27 +222,30 @@ class WaylandWindowCollector:
             from pywayland.scanner.protocol import Protocol
         except Exception:
             return None
-        root = Path(tempfile.gettempdir()) / "taskbar_pywayland_protocols"
-        package = root / "taskbar_wayland_protocols"
-        xml_path = root / "wlr-foreign-toplevel-management-unstable-v1.xml"
         try:
-            package.mkdir(parents=True, exist_ok=True)
-            (package / "__init__.py").write_text("", encoding="utf-8")
-            wayland = package / "wayland"
-            wayland.mkdir(exist_ok=True)
-            (wayland / "__init__.py").write_text(
-                "from pywayland.protocol.wayland import WlOutput, WlSeat, WlSurface\n", encoding="utf-8"
-            )
-            xml_path.write_text(textwrap.dedent(WLR_PROTOCOL_XML).strip(), encoding="utf-8")
-            Protocol.parse_file(str(xml_path)).output(str(package), {
-                "zwlr_foreign_toplevel_manager_v1": "wlr_foreign_toplevel_management_unstable_v1",
-                "zwlr_foreign_toplevel_handle_v1": "wlr_foreign_toplevel_management_unstable_v1",
-                "wl_output": "wayland", "wl_seat": "wayland", "wl_surface": "wayland",
-            })
-            if str(root) not in sys.path:
+            with tempfile.TemporaryDirectory(prefix="taskbar_pywayland_") as directory:
+                root = Path(directory)
+                package = root / "taskbar_wayland_protocols"
+                xml_path = root / "wlr-foreign-toplevel-management-unstable-v1.xml"
+                package.mkdir()
+                (package / "__init__.py").write_text("", encoding="utf-8")
+                wayland = package / "wayland"
+                wayland.mkdir()
+                (wayland / "__init__.py").write_text(
+                    "from pywayland.protocol.wayland import WlOutput, WlSeat, WlSurface\n", encoding="utf-8"
+                )
+                xml_path.write_text(textwrap.dedent(WLR_PROTOCOL_XML).strip(), encoding="utf-8")
+                Protocol.parse_file(str(xml_path)).output(str(package), {
+                    "zwlr_foreign_toplevel_manager_v1": "wlr_foreign_toplevel_management_unstable_v1",
+                    "zwlr_foreign_toplevel_handle_v1": "wlr_foreign_toplevel_management_unstable_v1",
+                    "wl_output": "wayland", "wl_seat": "wayland", "wl_surface": "wayland",
+                })
                 sys.path.insert(0, str(root))
-            return getattr(import_module("taskbar_wayland_protocols.wlr_foreign_toplevel_management_unstable_v1"),
-                           "ZwlrForeignToplevelManagerV1", None)
+                try:
+                    module = import_module("taskbar_wayland_protocols.wlr_foreign_toplevel_management_unstable_v1")
+                    return getattr(module, "ZwlrForeignToplevelManagerV1", None)
+                finally:
+                    sys.path.remove(str(root))
         except Exception as exc:
             print(f"taskbar: failed to generate wlr protocol: {exc}", file=sys.stderr)
             return None
