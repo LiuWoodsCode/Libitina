@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
-DEFAULT_CONFIG: dict[str, Any] = {"wallpaper_enabled": True, "shell": "mobile"}
+DEFAULT_CONFIG: dict[str, Any] = {"wallpaper_enabled": True, "shell": "desktop"}
 SHELL_OPTIONS = ("desktop", "mobile")
 
 
