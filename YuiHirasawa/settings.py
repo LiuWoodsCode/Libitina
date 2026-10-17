@@ -10,10 +10,11 @@ from typing import Any, Mapping
 
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
-DEFAULT_CONFIG: dict[str, bool] = {"wallpaper_enabled": True}
+DEFAULT_CONFIG: dict[str, Any] = {"wallpaper_enabled": True, "shell": "mobile"}
+SHELL_OPTIONS = ("desktop", "mobile")
 
 
-def load_config() -> dict[str, bool]:
+def load_config() -> dict[str, Any]:
     """Load the Yui configuration, creating it with defaults when absent."""
     if not CONFIG_PATH.exists():
         save_config(DEFAULT_CONFIG)
@@ -25,10 +26,12 @@ def load_config() -> dict[str, bool]:
         return DEFAULT_CONFIG.copy()
 
     value = data.get("wallpaper_enabled") if isinstance(data, dict) else None
+    shell = data.get("shell") if isinstance(data, dict) else None
     return {
         "wallpaper_enabled": value
         if isinstance(value, bool)
-        else DEFAULT_CONFIG["wallpaper_enabled"]
+        else DEFAULT_CONFIG["wallpaper_enabled"],
+        "shell": shell if shell in SHELL_OPTIONS else DEFAULT_CONFIG["shell"],
     }
 
 
@@ -39,6 +42,9 @@ def save_config(config: Mapping[str, Any]) -> None:
     )
     if not isinstance(wallpaper_enabled_value, bool):
         raise ValueError("wallpaper_enabled must be a boolean")
+    shell = config.get("shell", DEFAULT_CONFIG["shell"])
+    if shell not in SHELL_OPTIONS:
+        raise ValueError("shell must be 'desktop' or 'mobile'")
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -52,7 +58,7 @@ def save_config(config: Mapping[str, Any]) -> None:
             delete=False,
         ) as temporary:
             json.dump(
-                {"wallpaper_enabled": wallpaper_enabled_value},
+                {"wallpaper_enabled": wallpaper_enabled_value, "shell": shell},
                 temporary,
                 indent=2,
             )
@@ -73,4 +79,15 @@ def wallpaper_enabled() -> bool:
 def set_wallpaper_enabled(enabled: bool) -> None:
     if not isinstance(enabled, bool):
         raise ValueError("enabled must be a boolean")
-    save_config({"wallpaper_enabled": enabled})
+    config = load_config()
+    config["wallpaper_enabled"] = enabled
+    save_config(config)
+
+
+def set_shell(shell: str) -> None:
+    """Choose the shell to launch next time Yui starts."""
+    if shell not in SHELL_OPTIONS:
+        raise ValueError("shell must be 'desktop' or 'mobile'")
+    config = load_config()
+    config["shell"] = shell
+    save_config(config)
