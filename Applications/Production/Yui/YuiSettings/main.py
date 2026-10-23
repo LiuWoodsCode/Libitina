@@ -151,8 +151,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         self._interface_settings = interface_settings()
         self._window_button_settings = window_button_settings()
         self._stack = Gtk.Stack(
-            transition_type=Gtk.StackTransitionType.CROSSFADE,
-            transition_duration=180,
+            transition_type=Gtk.StackTransitionType.NONE,
         )
         self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
