@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Handy", "1")
-from gi.repository import Gio, Gtk, Handy
+from gi.repository import Gio, GLib, Gtk, Handy
 
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
@@ -24,6 +24,10 @@ COLOR_SCHEME_KEY = "color-scheme"
 GTK_THEME_KEY = "gtk-theme"
 ADWAITA_THEME = "Adwaita"
 ADWAITA_DARK_THEME = "Adwaita-dark"
+WM_SCHEMA = "org.gnome.desktop.wm.preferences"
+BUTTON_LAYOUT_KEY = "button-layout"
+VISIBLE_BUTTON_LAYOUT = "appmenu:minimize,maximize,close"
+HIDDEN_BUTTON_LAYOUT = "appmenu:"
 
 
 def _read_config() -> dict[str, object]:
@@ -41,10 +45,14 @@ def wallpaper_enabled() -> bool:
 
 def set_wallpaper_enabled(enabled: bool) -> None:
     """Write the configuration atomically without discarding other settings."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
     data = _read_config()
     data["wallpaper_enabled"] = bool(enabled)
+    _write_config(data)
+
+
+def _write_config(data: dict[str, object]) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
 
     try:
         with tempfile.NamedTemporaryFile(
@@ -77,6 +85,24 @@ def interface_settings() -> Gio.Settings | None:
 
 def setting_has_key(settings: Gio.Settings, key: str) -> bool:
     return settings.get_property("settings-schema").has_key(key)
+
+
+def window_button_settings() -> Gio.Settings | None:
+    source = Gio.SettingsSchemaSource.get_default()
+    schema = source.lookup(WM_SCHEMA, True) if source is not None else None
+    if schema is None or not schema.has_key(BUTTON_LAYOUT_KEY):
+        return None
+    return Gio.Settings.new_full(schema, None, None)
+
+
+def set_window_button_fix(settings: Gio.Settings, enabled: bool) -> None:
+    """Show window controls or hide them using Phosh's button layout."""
+    if not settings.is_writable(BUTTON_LAYOUT_KEY):
+        raise OSError("The window-button layout is locked by your administrator.")
+    layout = VISIBLE_BUTTON_LAYOUT if enabled else HIDDEN_BUTTON_LAYOUT
+    if not settings.set_string(BUTTON_LAYOUT_KEY, layout):
+        raise OSError("Could not change the window-button layout.")
+    Gio.Settings.sync()
 
 
 def dark_mode_enabled(settings: Gio.Settings) -> bool:
@@ -121,6 +147,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         self.set_size_request(320, 240)
 
         self._interface_settings = interface_settings()
+        self._window_button_settings = window_button_settings()
         self._stack = Gtk.Stack(
             transition_type=Gtk.StackTransitionType.CROSSFADE,
             transition_duration=180,
@@ -129,6 +156,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         self._stack.set_vexpand(True)
         self._add_wallpaper_page()
         self._add_appearance_page()
+        self._add_advanced_page()
         self._add_about_page()
 
         self._sidebar_list = self._make_sidebar()
@@ -183,6 +211,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         pages = (
             ("wallpaper", "Wallpaper", "preferences-desktop-wallpaper-symbolic"),
             ("appearance", "Appearance", "preferences-desktop-theme-symbolic"),
+            ("advanced", "Advanced", "preferences-system-symbolic"),
             ("about", "About", "help-about-symbolic"),
         )
         first_row = None
@@ -236,6 +265,72 @@ class SettingsWindow(Handy.ApplicationWindow):
                     )
         page.pack_start(self._dark_mode_checkbox, False, False, 0)
         self._stack.add_titled(page, "appearance", "Appearance")
+
+    def _add_advanced_page(self) -> None:
+        page = make_page()
+        title = Gtk.Label(label="Phosh window-button fix", xalign=0)
+        page.pack_start(title, False, False, 0)
+        description = Gtk.Label(
+            label=(
+                "Restore minimize, maximize, and close buttons in GTK apps "
+                "after using Phosh. Undo hides these buttons, even if you "
+                "have never applied the fix. "
+                "This affects both desktops; switching Phosh modes may "
+                "overwrite it again. You may need to reopen affected apps."
+            ),
+            xalign=0,
+        )
+        description.set_line_wrap(True)
+        description.set_max_width_chars(48)
+        page.pack_start(description, False, False, 0)
+        self._show_window_buttons = Gtk.Button(label="Show window buttons")
+        self._undo_window_buttons = Gtk.Button(label="Undo fix")
+        for button, enabled in (
+            (self._show_window_buttons, True),
+            (self._undo_window_buttons, False),
+        ):
+            button.connect("clicked", self._on_window_button_fix, enabled)
+            page.pack_start(button, False, False, 0)
+        self._window_button_status = Gtk.Label(xalign=0)
+        self._window_button_status.set_line_wrap(True)
+        self._window_button_status.set_max_width_chars(48)
+        page.pack_start(self._window_button_status, False, False, 0)
+        self._refresh_window_button_controls()
+        if self._window_button_settings is not None:
+            self._window_button_settings.connect(
+                f"writable-changed::{BUTTON_LAYOUT_KEY}",
+                lambda *_args: self._refresh_window_button_controls(),
+            )
+        self._stack.add_titled(page, "advanced", "Advanced")
+
+    def _refresh_window_button_controls(self) -> None:
+        supported = self._window_button_settings is not None
+        writable = supported and self._window_button_settings.is_writable(
+            BUTTON_LAYOUT_KEY
+        )
+        self._show_window_buttons.set_sensitive(writable)
+        self._undo_window_buttons.set_sensitive(writable)
+        if not supported:
+            self._window_button_status.set_text(
+                "Window-button settings are not supported by this desktop."
+            )
+        elif not writable:
+            self._window_button_status.set_text(
+                "The window-button layout is locked by your administrator."
+            )
+
+    def _on_window_button_fix(self, _button: Gtk.Button, enabled: bool) -> None:
+        if self._window_button_settings is None:
+            return
+        try:
+            set_window_button_fix(self._window_button_settings, enabled)
+        except (OSError, GLib.Error) as exc:
+            self._window_button_status.set_text(str(exc))
+        else:
+            self._window_button_status.set_text(
+                "Window buttons enabled." if enabled else "Window buttons hidden."
+            )
+        self._refresh_window_button_controls()
 
     def _add_about_page(self) -> None:
         page = make_page()
