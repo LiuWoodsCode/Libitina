@@ -31,12 +31,6 @@ and a `wlr-randr` version supporting `--json`. The Debian installer installs
 `wlr-randr`; an older version without JSON support must be upgraded. Custom modes
 and adaptive sync remain subject to compositor and hardware support.
 
-Run backend and launcher integration checks with:
-
-```sh
-python3 -m unittest discover -s YuiHirasawa/tests -v
-```
-
 Both desktop and mobile launchers show an error dialog when an application cannot
 be started or activated, or when its directly launched process exits abnormally
 within ten seconds. The dialog names the application and displays the error or

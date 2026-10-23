@@ -16,6 +16,8 @@ from pathlib import Path
 
 KINDS = ("Internal", "Production")
 ENVIRONMENTS = ("Global", "Phosh", "Yui")
+# Repository files needed alongside an installed application's own payload.
+SHARED_FILES = {"YuiSettings": ("YuiHirasawa/displays.py",)}
 
 
 @dataclass(frozen=True)
@@ -122,7 +124,9 @@ def make_desktop_entry(template: str, app_directory: Path) -> str:
     return "\n".join(result) + "\n"
 
 
-def replace_directory(source: Path, destination: Path) -> None:
+def replace_directory(
+    source: Path, destination: Path, shared_files: tuple[Path, ...] = ()
+) -> None:
     """Copy *source* into place without exposing a partially copied tree."""
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     staging_root = Path(tempfile.mkdtemp(prefix=".libitina-install-", dir=destination.parent))
@@ -130,6 +134,8 @@ def replace_directory(source: Path, destination: Path) -> None:
     backup = staging_root / "previous"
     try:
         shutil.copytree(source, staged, symlinks=True)
+        for shared_file in shared_files:
+            shutil.copy2(shared_file, staged / shared_file.name)
         launcher = staged / "launch.sh"
         launcher.chmod(stat.S_IMODE(launcher.stat().st_mode) | 0o111)
 
@@ -210,7 +216,12 @@ def install(application: Application, user_data: Path) -> tuple[Path, Path]:
     desktop_path = user_data / "applications" / f"libitina-{application.app_id}.desktop"
     template = (application.source / "app.desktop").read_text(encoding="utf-8")
     desktop_entry = make_desktop_entry(template, install_directory.resolve())
-    replace_directory(application.source, install_directory)
+    repository = Path(__file__).resolve().parent.parent
+    shared_files = tuple(
+        repository / filename
+        for filename in SHARED_FILES.get(application.app_id, ())
+    )
+    replace_directory(application.source, install_directory, shared_files)
     write_desktop_entry(desktop_path, desktop_entry)
     return install_directory, desktop_path
 

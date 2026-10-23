@@ -8,7 +8,9 @@ import time
 
 from gi.repository import GLib, Gtk
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "YuiHirasawa"))
+# Installed copies bundle the backend; source checkouts share it with the shell.
+if not Path(__file__).with_name("displays.py").is_file():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "YuiHirasawa"))
 import displays
 
 
