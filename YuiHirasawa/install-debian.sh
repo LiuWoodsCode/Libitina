@@ -65,10 +65,12 @@ packages=(
     dbus-user-session
     gir1.2-gstreamer-1.0
     gir1.2-gtk-3.0
+    gir1.2-handy-1
     gir1.2-gtklayershell-0.1
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
     labwc
+    wlr-randr
     libpam0g
     python3
     python3-dbus

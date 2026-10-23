@@ -83,7 +83,7 @@ def main():
         return run_session()
     if args.worker:
         return supervise({name: [sys.executable, str(ROOT / name)]
-                          for name in ("notification.py", "main.py")})
+                          for name in ("notification.py", "main.py", "displays.py")})
 
     # Hold the lock in the supervisor so a restarted worker cannot race autostart.
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/yui-{os.getuid()}")

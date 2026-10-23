@@ -16,6 +16,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Handy", "1")
 from gi.repository import Gio, GLib, Gtk, Handy
 
+from display_page import DisplayPage
+
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
 DEFAULT_WALLPAPER_ENABLED = True
@@ -156,6 +158,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         self._stack.set_vexpand(True)
         self._add_wallpaper_page()
         self._add_appearance_page()
+        self._stack.add_titled(DisplayPage(), "display", "Display")
         self._add_advanced_page()
         self._add_about_page()
 
@@ -211,6 +214,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         pages = (
             ("wallpaper", "Wallpaper", "preferences-desktop-wallpaper-symbolic"),
             ("appearance", "Appearance", "preferences-desktop-theme-symbolic"),
+            ("display", "Display", "preferences-desktop-display-symbolic"),
             ("advanced", "Advanced", "preferences-system-symbolic"),
             ("about", "About", "help-about-symbolic"),
         )
