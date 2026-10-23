@@ -76,7 +76,7 @@ def interface_settings() -> Gio.Settings | None:
 
 
 def setting_has_key(settings: Gio.Settings, key: str) -> bool:
-    return settings.settings_schema.has_key(key)
+    return settings.get_property("settings-schema").has_key(key)
 
 
 def dark_mode_enabled(settings: Gio.Settings) -> bool:
