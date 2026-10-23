@@ -14,12 +14,12 @@ def quote_exec(value):
 
 
 def desktop_entry():
-    wrapper = Path(__file__).resolve().with_name("labwc_session.py")
+    wrapper = Path(__file__).resolve().with_name("launcher.py")
     return (
         "[Desktop Entry]\n"
         "Name=YuiHirasawa\n"
         "Comment=Yui shell on Labwc\n"
-        f"Exec=/usr/bin/python3 {quote_exec(str(wrapper))}\n"
+        f"Exec=/usr/bin/python3 {quote_exec(str(wrapper))} --session\n"
         "TryExec=labwc\n"
         "Type=Application\n"
         "DesktopNames=labwc;\n"

@@ -1,7 +1,27 @@
 #!/usr/bin/env bash
-# Install Yui's Debian dependencies and start Yui with this user's Labwc session.
+# Install Yui's Debian dependencies and login session; optionally add legacy autostart.
 
 set -euo pipefail
+
+force_legacy=false
+for argument in "$@"; do
+    case ${argument} in
+        --force-legacy)
+            force_legacy=true
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--force-legacy]"
+            echo "Install dependencies and the YuiHirasawa login session."
+            echo "  --force-legacy  Also install Yui in the user's Labwc autostart."
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument: ${argument}" >&2
+            echo "Usage: $0 [--force-legacy]" >&2
+            exit 1
+            ;;
+    esac
+done
 
 if [[ ! -r /etc/debian_version ]]; then
     echo "error: this installer is intended for Debian" >&2
@@ -62,79 +82,82 @@ echo "Installing Labwc and Yui dependencies..."
 "${apt[@]}" install -y "${packages[@]}"
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+launcher_path=${script_dir}/launcher.py
 main_path=${script_dir}/main.py
 notification_path=${script_dir}/notification.py
 
-for path in "${main_path}" "${notification_path}"; do
+for path in "${launcher_path}" "${main_path}" "${notification_path}"; do
     if [[ ! -f ${path} ]]; then
         echo "error: required Yui program not found: ${path}" >&2
         exit 1
     fi
 done
 
-labwc_dir=${config_home}/labwc
-autostart_path=${labwc_dir}/autostart
+if [[ ${force_legacy} == true ]]; then
+    labwc_dir=${config_home}/labwc
+    autostart_path=${labwc_dir}/autostart
 
-if [[ ${EUID} -eq 0 ]]; then
-    install -d -m 700 -o "${target_uid}" -g "${target_gid}" "${labwc_dir}"
-else
-    install -d -m 700 "${labwc_dir}"
-fi
+    if [[ ${EUID} -eq 0 ]]; then
+        install -d -m 700 -o "${target_uid}" -g "${target_gid}" "${labwc_dir}"
+    else
+        install -d -m 700 "${labwc_dir}"
+    fi
 
-begin_marker="# BEGIN Yui shell (managed by install-debian.sh)"
-end_marker="# END Yui shell (managed by install-debian.sh)"
-legacy_begin_marker="# BEGIN Yui shell (managed by Misc/setup.py)"
-legacy_end_marker="# END Yui shell (managed by Misc/setup.py)"
-temporary_path=$(mktemp "${labwc_dir}/.autostart.XXXXXX")
-trap 'rm -f -- "${temporary_path}"' EXIT
+    begin_marker="# BEGIN Yui shell (managed by install-debian.sh)"
+    end_marker="# END Yui shell (managed by install-debian.sh)"
+    legacy_begin_marker="# BEGIN Yui shell (managed by Misc/setup.py)"
+    legacy_end_marker="# END Yui shell (managed by Misc/setup.py)"
+    temporary_path=$(mktemp "${labwc_dir}/.autostart.XXXXXX")
+    trap 'rm -f -- "${temporary_path}"' EXIT
 
-if [[ -f ${autostart_path} ]]; then
-    awk \
-        -v begin="${begin_marker}" \
-        -v end="${end_marker}" \
-        -v legacy_begin="${legacy_begin_marker}" \
-        -v legacy_end="${legacy_end_marker}" '
-        $0 == begin || $0 == legacy_begin { managed = 1; next }
-        $0 == end || $0 == legacy_end { managed = 0; next }
-        !managed { print }
-    ' "${autostart_path}" >"${temporary_path}"
-else
-    printf '#!/bin/sh\n' >"${temporary_path}"
-fi
+    if [[ -f ${autostart_path} ]]; then
+        awk \
+            -v begin="${begin_marker}" \
+            -v end="${end_marker}" \
+            -v legacy_begin="${legacy_begin_marker}" \
+            -v legacy_end="${legacy_end_marker}" '
+            $0 == begin || $0 == legacy_begin { managed = 1; next }
+            $0 == end || $0 == legacy_end { managed = 0; next }
+            !managed { print }
+        ' "${autostart_path}" >"${temporary_path}"
+    else
+        printf '#!/bin/sh\n' >"${temporary_path}"
+    fi
 
-# Bash's %q produces shell-safe paths for Labwc's POSIX-shell autostart file.
-printf -v main_command '/usr/bin/python3 %q &' "${main_path}"
-printf -v notification_command '/usr/bin/python3 %q &' "${notification_path}"
+    # Bash's %q produces shell-safe paths for Labwc's POSIX-shell autostart file.
+    printf -v launcher_command '/usr/bin/python3 %q &' "${launcher_path}"
 
-if [[ -s ${temporary_path} ]] && [[ $(tail -c 1 "${temporary_path}" | wc -l) -eq 0 ]]; then
-    printf '\n' >>"${temporary_path}"
-fi
-if [[ -s ${temporary_path} ]] && [[ -n $(tail -n 1 "${temporary_path}") ]]; then
-    printf '\n' >>"${temporary_path}"
-fi
+    if [[ -s ${temporary_path} ]] && [[ $(tail -c 1 "${temporary_path}" | wc -l) -eq 0 ]]; then
+        printf '\n' >>"${temporary_path}"
+    fi
+    if [[ -s ${temporary_path} ]] && [[ -n $(tail -n 1 "${temporary_path}") ]]; then
+        printf '\n' >>"${temporary_path}"
+    fi
 
-cat >>"${temporary_path}" <<EOF
+    cat >>"${temporary_path}" <<EOF
 ${begin_marker}
-${main_command}
-${notification_command}
+${launcher_command}
 ${end_marker}
 EOF
 
-if [[ -e ${autostart_path} ]]; then
-    chmod --reference="${autostart_path}" "${temporary_path}"
+    if [[ -e ${autostart_path} ]]; then
+        chmod --reference="${autostart_path}" "${temporary_path}"
+    else
+        chmod 700 "${temporary_path}"
+    fi
+
+    if [[ ${EUID} -eq 0 ]]; then
+        chown "${target_uid}:${target_gid}" "${temporary_path}"
+    fi
+
+    mv -f -- "${temporary_path}" "${autostart_path}"
+    trap - EXIT
+
+    echo "Configured ${autostart_path} for ${target_user}."
+    echo "Yui will start the next time Labwc launches."
 else
-    chmod 700 "${temporary_path}"
+    echo "Skipping legacy Labwc autostart (enable with --force-legacy)."
 fi
-
-if [[ ${EUID} -eq 0 ]]; then
-    chown "${target_uid}:${target_gid}" "${temporary_path}"
-fi
-
-mv -f -- "${temporary_path}" "${autostart_path}"
-trap - EXIT
-
-echo "Configured ${autostart_path} for ${target_user}."
-echo "Yui will start the next time Labwc launches."
 
 # Register an additional login option; retain the existing Labwc session.
 if [[ ${EUID} -eq 0 ]]; then

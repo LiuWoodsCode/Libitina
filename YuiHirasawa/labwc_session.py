@@ -42,7 +42,9 @@ def main():
             (directory / "rc.xml").write_bytes(xml)
             # System configuration, then Yui bindings, then user overrides.
             environment["XDG_CONFIG_DIRS"] = temporary + ":" + system_dirs
-            return subprocess.run(["labwc", "--merge-config"], env=environment).returncode
+            startup = shlex.join([sys.executable, str(Path(__file__).resolve().with_name("launcher.py"))])
+            return subprocess.run(["labwc", "--merge-config", "--startup", startup],
+                                  env=environment).returncode
     except (OSError, ET.ParseError) as exc:
         print(f"Could not start YuiHirasawa: {exc}", file=sys.stderr)
         return 1
