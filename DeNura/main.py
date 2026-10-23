@@ -134,8 +134,19 @@ def rebrand():
     old_name = old.get("NAME", "")
     old_version_id = old.get("VERSION_ID", "")
     old_version = old.get("VERSION", old_version_id)
+    old_version_codename = old.get("VERSION_CODENAME", "")
     old_id = old.get("ID", "")
     old_id_like = old.get("ID_LIKE", "")
+    display_version = old_version_id or old_version or old_version_codename
+    base_display_name = " ".join(
+        part for part in (get_org_name_for_pretty_name(old_name), display_version)
+        if part
+    )
+    id_like = " ".join(part for part in (old_id, old_id_like) if part)
+    codename_line = (
+        f'VERSION_CODENAME="{old_version_codename}"\n'
+        if old_version_codename else ""
+    )
 
     # Create a backup every time the script rebrands the installation.
     backup_path = get_backup_path()
@@ -155,12 +166,12 @@ def rebrand():
     # the variables defined above.
     # ============================================================
 
-    new_os_release = f"""PRETTY_NAME="LibitinaOS ({get_org_name_for_pretty_name(old_name)} {old_version_id})"
+    new_os_release = f"""PRETTY_NAME="LibitinaOS ({base_display_name})"
 NAME="LibitinaOS"
 VERSION_ID="{old_version_id}"
 VERSION="{old_version}"
-ID="libitina-{get_org_name_for_id_name(old_id)}"
-ID_LIKE="{old_id} {old_id_like}"
+{codename_line}ID="libitina-{get_org_name_for_id_name(old_id)}"
+ID_LIKE="{id_like}"
 LOGO="libitina-logo"
 ANSI_COLOR="1;35"
 
