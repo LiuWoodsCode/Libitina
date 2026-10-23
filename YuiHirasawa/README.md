@@ -36,3 +36,14 @@ Run backend and launcher integration checks with:
 ```sh
 python3 -m unittest discover -s YuiHirasawa/tests -v
 ```
+
+Both desktop and mobile launchers show an error dialog when an application cannot
+be started or activated, or when its directly launched process exits abnormally
+within ten seconds. The dialog names the application and displays the error or
+exit status. Normal exits do not show a dialog. Programs that detach into a
+separate process or start through D-Bus cannot have their exit status monitored.
+Choose **Try Again in foot** to rerun the application's command in foot and read
+its output. Foot stays open after the program exits (`--hold`). This retry runs
+the desktop entry's command directly, including for D-Bus activated applications.
+The Debian installer includes foot; existing installations need the `foot` package.
+The checks require PyGObject (`python3-gi` on Debian).

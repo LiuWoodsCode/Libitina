@@ -8,9 +8,47 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
 
 from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
+
+
+def show_error_dialog(parent: Gtk.Window, title: str, detail: str,
+                      on_retry=None) -> bool:
+    """Keep shell errors above the launcher's layer surface."""
+    dialog = Gtk.MessageDialog(
+        transient_for=parent,
+        modal=True,
+        message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.CLOSE,
+        text=title,
+    )
+    if on_retry is not None:
+        dialog.add_button("Try Again in foot", Gtk.ResponseType.APPLY)
+    dialog.format_secondary_text(detail)
+    GtkLayerShell.init_for_window(dialog)
+    GtkLayerShell.set_layer(dialog, GtkLayerShell.Layer.OVERLAY)
+    GtkLayerShell.set_namespace(dialog, "yui-error")
+    GtkLayerShell.set_exclusive_zone(dialog, 0)
+    GtkLayerShell.set_keyboard_mode(dialog, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+    if parent.get_window() is not None:
+        monitor = parent.get_display().get_monitor_at_window(parent.get_window())
+        GtkLayerShell.set_monitor(dialog, monitor)
+    try:
+        while dialog.run() == Gtk.ResponseType.APPLY and on_retry is not None:
+            try:
+                on_retry()
+            except (GLib.Error, OSError, ValueError) as exc:
+                dialog.format_secondary_text(f"{detail}\n\nCould not retry in foot: {exc}")
+            else:
+                return True
+    finally:
+        dialog.destroy()
+    if parent.get_visible():
+        parent.present()
+    return False
+
 
 def _fixed_icon_image(pixbuf: GdkPixbuf.Pixbuf, size: int) -> Gtk.Image:
     """Return an image whose natural size cannot exceed the requested square."""

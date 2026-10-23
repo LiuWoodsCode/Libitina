@@ -63,6 +63,7 @@ fi
 
 packages=(
     dbus-user-session
+    foot
     gir1.2-gstreamer-1.0
     gir1.2-gtk-3.0
     gir1.2-handy-1

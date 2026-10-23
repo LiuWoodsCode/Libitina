@@ -20,7 +20,8 @@ from backend import (
     open_audio_settings,
 )
 from launcher_control import LauncherControl
-from shell_widgets import SystemTray, _fixed_icon_image
+from app_launch import launch_application, launch_in_foot
+from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog
 from settings import wallpaper_enabled
 
 
@@ -156,24 +157,20 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         return button
 
     def _launch_app(self, _button: Gtk.Button, app: Gio.DesktopAppInfo) -> None:
-        try:
-            app.launch([], None)
+        if launch_application(
+            app, lambda title, detail: self._show_error(title, detail, app),
+            self.get_display().get_app_launch_context()
+        ):
             if not self._locked_open:
                 self.hide()
-        except GLib.Error as exc:
-            self._show_error(f"Could not launch {app.get_display_name()}", exc.message)
 
-    def _show_error(self, title: str, detail: str) -> None:
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.ERROR,
-            buttons=Gtk.ButtonsType.CLOSE,
-            text=title,
-        )
-        dialog.format_secondary_text(detail)
-        dialog.run()
-        dialog.destroy()
+    def _show_error(self, title: str, detail: str, app=None) -> None:
+        retry = (
+            lambda: launch_in_foot(app, self.get_display().get_app_launch_context())
+        ) if app is not None else None
+        if show_error_dialog(self, title, detail, on_retry=retry):
+            if not self._locked_open:
+                self.hide()
 
     def _on_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
         if event.keyval == Gdk.KEY_Escape:
@@ -259,16 +256,7 @@ class StatusBar(Gtk.Window):
             try:
                 open_audio_settings()
             except OSError as exc:
-                dialog = Gtk.MessageDialog(
-                    transient_for=self,
-                    modal=True,
-                    message_type=Gtk.MessageType.ERROR,
-                    buttons=Gtk.ButtonsType.CLOSE,
-                    text="Could not open pavucontrol.",
-                )
-                dialog.format_secondary_text(str(exc))
-                dialog.run()
-                dialog.destroy()
+                show_error_dialog(self, "Could not open pavucontrol.", str(exc))
             return
         if icon_type == "network":
             text = f"{icon_type} is not currently implemented, for now use either the Ranboo API's ironmouse endpoints or nmcli."
