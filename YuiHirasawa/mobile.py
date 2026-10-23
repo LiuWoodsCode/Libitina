@@ -19,6 +19,7 @@ from backend import (
     WindowInfo,
     open_audio_settings,
 )
+from launcher_control import LauncherControl
 from shell_widgets import SystemTray, _fixed_icon_image
 from settings import wallpaper_enabled
 
@@ -569,6 +570,8 @@ class Taskbar(Gtk.Window):
         self._no_running_programs = True
         self._osk_visible = False
         self._launcher = ApplicationLauncher()
+        self._launcher_control = LauncherControl(self._launcher)
+        self.connect("destroy", lambda *_: self._launcher_control.close())
         self._running = RunningWindow(self._on_running_changed)
 
         self.set_decorated(False)

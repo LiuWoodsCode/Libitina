@@ -27,3 +27,5 @@ Phosh is mostly based on GNOME/GTK (although it is only loosely related to GNOME
 
 ## Yui
 Yui is a custom mobile shell specifically designed for the extreme low end of devices (e.g devices without DRM support). It is written in python and uses GTK 3 and Layer Shell, and runs on top of the labwc compositor. For most other usecases, use Phosh instead.
+
+The Debian installer adds a **YuiHirasawa** option to the login manager alongside Labwc. Existing installations can register it with `sudo /usr/bin/python3 YuiHirasawa/install-session.py`. Log out and select **YuiHirasawa** to use the temporary Super/Win launcher bindings. User `rc.xml` settings take precedence and are never edited by the wrapper. Existing Labwc autostart continues to start Yui as configured by the installer. The session entry points to this checkout, so keep it accessible at the same location; rerun registration after moving it.

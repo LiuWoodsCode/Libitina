@@ -135,3 +135,10 @@ trap - EXIT
 
 echo "Configured ${autostart_path} for ${target_user}."
 echo "Yui will start the next time Labwc launches."
+
+# Register an additional login option; retain the existing Labwc session.
+if [[ ${EUID} -eq 0 ]]; then
+    /usr/bin/python3 "${script_dir}/install-session.py"
+else
+    sudo /usr/bin/python3 "${script_dir}/install-session.py"
+fi

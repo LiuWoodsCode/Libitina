@@ -17,6 +17,7 @@ from backend import (
     open_audio_settings,
     run_session_action,
 )
+from launcher_control import LauncherControl
 from shell_widgets import SystemTray, _fixed_icon_image
 
 
@@ -181,6 +182,8 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
         self._buttons: dict[str, Gtk.Button] = {}
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
         self._launcher = ApplicationLauncher()
+        self._launcher_control = LauncherControl(self._launcher)
+        self.connect("destroy", lambda *_: self._launcher_control.close())
 
         self.set_decorated(False)
         self.connect("destroy", lambda *_: Gtk.main_quit())
