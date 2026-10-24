@@ -16,6 +16,9 @@ import app_launch
 
 class FootRetryTests(unittest.TestCase):
     def setUp(self):
+        config_patch = patch.object(app_launch, "load_config", return_value={"software_rendering_apps": []})
+        config_patch.start()
+        self.addCleanup(config_patch.stop)
         self.terminal = Mock()
         self.terminal.launch.return_value = True
         self.factory = Mock(return_value=self.terminal)

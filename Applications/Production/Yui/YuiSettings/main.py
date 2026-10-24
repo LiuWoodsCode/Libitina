@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-import json
-import os
 import platform
 import sys
-import tempfile
 from pathlib import Path
 
 import gi
@@ -17,10 +14,12 @@ gi.require_version("Handy", "1")
 from gi.repository import Gio, GLib, Gtk, Handy
 
 from display_page import DisplayPage
+from settings import (
+    load_config, set_software_rendering_apps, set_wallpaper_enabled,
+    wallpaper_enabled,
+)
 
 
-CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
-DEFAULT_WALLPAPER_ENABLED = True
 INTERFACE_SCHEMA = "org.gnome.desktop.interface"
 COLOR_SCHEME_KEY = "color-scheme"
 GTK_THEME_KEY = "gtk-theme"
@@ -30,46 +29,6 @@ WM_SCHEMA = "org.gnome.desktop.wm.preferences"
 BUTTON_LAYOUT_KEY = "button-layout"
 VISIBLE_BUTTON_LAYOUT = "appmenu:minimize,maximize,close"
 HIDDEN_BUTTON_LAYOUT = "appmenu:"
-
-
-def _read_config() -> dict[str, object]:
-    try:
-        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def wallpaper_enabled() -> bool:
-    value = _read_config().get("wallpaper_enabled")
-    return value if isinstance(value, bool) else DEFAULT_WALLPAPER_ENABLED
-
-
-def set_wallpaper_enabled(enabled: bool) -> None:
-    """Write the configuration atomically without discarding other settings."""
-    data = _read_config()
-    data["wallpaper_enabled"] = bool(enabled)
-    _write_config(data)
-
-
-def _write_config(data: dict[str, object]) -> None:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=CONFIG_PATH.parent,
-            prefix="config.", suffix=".tmp", delete=False,
-        ) as temporary:
-            json.dump(data, temporary, indent=2)
-            temporary.write("\n")
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        temporary_path.replace(CONFIG_PATH)
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
 
 
 def interface_settings() -> Gio.Settings | None:
@@ -304,7 +263,86 @@ class SettingsWindow(Handy.ApplicationWindow):
                 f"writable-changed::{BUTTON_LAYOUT_KEY}",
                 lambda *_args: self._refresh_window_button_controls(),
             )
-        self._stack.add_titled(page, "advanced", "Advanced")
+        self._add_software_rendering_controls(page)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(page)
+        self._stack.add_titled(scroll, "advanced", "Advanced")
+
+    def _add_software_rendering_controls(self, page: Gtk.Box) -> None:
+        page.pack_start(Gtk.Separator(), False, False, 0)
+        page.pack_start(Gtk.Label(label="Software rendering", xalign=0), False, False, 0)
+        description = Gtk.Label(
+            label=(
+                "Launch these apps with software rendering when opened from Yui. "
+                "Use the Desktop ID shown by right-clicking an app and choosing "
+                "Details, including .desktop. Changes apply the next time you "
+                "launch the app; close any running instance first."
+            ),
+            xalign=0, wrap=True,
+        )
+        description.set_max_width_chars(48)
+        page.pack_start(description, False, False, 0)
+        entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._software_app_entry = Gtk.Entry()
+        self._software_app_entry.set_placeholder_text("org.example.App.desktop")
+        self._software_app_entry.set_hexpand(True)
+        self._software_app_entry.connect("activate", self._add_software_app)
+        entry_row.pack_start(self._software_app_entry, True, True, 0)
+        add = Gtk.Button(label="Add")
+        add.connect("clicked", self._add_software_app)
+        entry_row.pack_end(add, False, False, 0)
+        page.pack_start(entry_row, False, False, 0)
+        self._software_app_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        page.pack_start(self._software_app_list, False, False, 0)
+        self._software_app_status = Gtk.Label(xalign=0, wrap=True)
+        self._software_app_status.set_max_width_chars(48)
+        page.pack_start(self._software_app_status, False, False, 0)
+        self._refresh_software_apps()
+
+    def _refresh_software_apps(self) -> None:
+        for row in self._software_app_list.get_children():
+            row.destroy()
+        app_ids = load_config()["software_rendering_apps"]
+        for app_id in app_ids:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, margin=8)
+            label = Gtk.Label(label=app_id, xalign=0, selectable=True, wrap=True)
+            label.set_max_width_chars(32)
+            row.pack_start(label, True, True, 0)
+            remove = Gtk.Button.new_from_icon_name("list-remove-symbolic", Gtk.IconSize.BUTTON)
+            remove.set_tooltip_text(f"Remove {app_id}")
+            remove.connect("clicked", self._remove_software_app, app_id)
+            row.pack_end(remove, False, False, 0)
+            self._software_app_list.add(row)
+        if not app_ids:
+            self._software_app_list.add(Gtk.Label(label="No applications added.", xalign=0, margin=8))
+        self._software_app_list.show_all()
+
+    def _save_software_apps(self, app_ids: list[str]) -> bool:
+        try:
+            set_software_rendering_apps(app_ids)
+        except (OSError, ValueError) as exc:
+            self._software_app_status.set_text(f"Could not save: {exc}")
+            return False
+        self._software_app_status.set_text("Saved. Applies to the next launch from Yui.")
+        self._refresh_software_apps()
+        return True
+
+    def _add_software_app(self, _widget) -> None:
+        app_id = self._software_app_entry.get_text().strip()
+        if not app_id:
+            self._software_app_status.set_text("Enter a desktop ID first.")
+            return
+        app_ids = load_config()["software_rendering_apps"]
+        if app_id in app_ids:
+            self._software_app_status.set_text("This application is already in the list.")
+            return
+        if self._save_software_apps([*app_ids, app_id]):
+            self._software_app_entry.set_text("")
+
+    def _remove_software_app(self, _button: Gtk.Button, app_id: str) -> None:
+        app_ids = load_config()["software_rendering_apps"]
+        self._save_software_apps([item for item in app_ids if item != app_id])
 
     def _refresh_window_button_controls(self) -> None:
         supported = self._window_button_settings is not None

@@ -21,7 +21,7 @@ from backend import (
 )
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
-from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog
+from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu
 from settings import wallpaper_enabled
 
 
@@ -154,6 +154,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         content.pack_start(label, False, False, 0)
         button.add(content)
         button.connect("clicked", self._launch_app, app)
+        attach_application_menu(button, self, app, self._launch_app)
         return button
 
     def _launch_app(self, _button: Gtk.Button, app: Gio.DesktopAppInfo) -> None:

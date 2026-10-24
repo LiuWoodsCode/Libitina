@@ -352,20 +352,10 @@ class ApplicationCatalog:
 
     @staticmethod
     def _applications() -> list[Gio.DesktopAppInfo]:
-        apps: list[Gio.DesktopAppInfo] = []
-        seen: set[str] = set()
-        for desktop_file in ApplicationCatalog._desktop_files():
-            desktop_id = desktop_file.name
-            if desktop_id in seen:
-                continue
-            try:
-                app = Gio.DesktopAppInfo.new_from_filename(str(desktop_file))
-                if app is None or not app.should_show():
-                    continue
-                seen.add(desktop_id)
-                apps.append(app)
-            except Exception:
-                continue
+        # GIO resolves XDG precedence and canonical IDs (including subfolders),
+        # so Details and per-application settings refer to the installed ID.
+        apps = [app for app in Gio.AppInfo.get_all()
+                if isinstance(app, Gio.DesktopAppInfo) and app.should_show()]
         return sorted(apps, key=lambda app: app.get_display_name().casefold())
 
 

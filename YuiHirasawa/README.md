@@ -41,3 +41,21 @@ its output. Foot stays open after the program exits (`--hold`). This retry runs
 the desktop entry's command directly, including for D-Bus activated applications.
 The Debian installer includes foot; existing installations need the `foot` package.
 The checks require PyGObject (`python3-gi` on Debian).
+
+Right-click an application in either launcher to choose **Open** or **Details**.
+Open behaves like a left click. Details opens a selectable debug view with the
+desktop ID, desktop file location and contents, command, executable, working
+directory, icon, startup WM class, categories, MIME types, terminal/D-Bus flags,
+and whether Yui is configured to use software rendering for that app.
+
+In YuiSettings, **Advanced → Software rendering** lets you add and remove exact
+desktop IDs, including `.desktop`. Copy the ID from the launcher's Details view.
+The list is saved as `software_rendering_apps` in `~/.config/yui/config.json`.
+Both launchers read it on every launch, including retries in foot, without a
+shell restart. Close any existing instance before relaunching the app.
+
+Listed apps receive `LIBGL_ALWAYS_SOFTWARE=1`, `GSK_RENDERER=cairo`, and
+`QT_QUICK_BACKEND=software` for Mesa OpenGL, GTK 4, and Qt Quick respectively.
+Apps with D-Bus activation use their desktop file's `Exec` command directly so
+the process receives these environment variables. Applications using other
+rendering engines or ignoring these variables may need their own settings.

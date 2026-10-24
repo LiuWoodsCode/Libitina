@@ -12,6 +12,89 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
 
 from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
+from app_launch import application_details
+
+
+def attach_application_menu(button: Gtk.Button, parent: Gtk.Window, app, on_open) -> None:
+    """Offer the same Open and Details actions in either launcher layout."""
+    menu = Gtk.Menu()
+    menu.attach_to_widget(button, None)
+    open_item = Gtk.MenuItem(label="Open")
+    open_item.connect("activate", on_open, app)
+    menu.append(open_item)
+    details_item = Gtk.MenuItem(label="Details")
+    details_item.connect("activate", lambda *_: show_application_details(parent, app))
+    menu.append(details_item)
+    menu.show_all()
+
+    def button_press(_button, event):
+        if event.button != Gdk.BUTTON_SECONDARY:
+            return False
+        menu.popup_at_pointer(event)
+        return True
+
+    def popup_menu(_button):
+        menu.popup_at_widget(
+            button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST,
+            Gtk.get_current_event(),
+        )
+        return True
+
+    button.connect("button-press-event", button_press)
+    button.connect("popup-menu", popup_menu)
+
+
+def _prepare_launcher_dialog(dialog: Gtk.Dialog, parent: Gtk.Window, namespace: str) -> None:
+    """Keep dialogs visible and focused above the launcher's layer surface."""
+    GtkLayerShell.init_for_window(dialog)
+    GtkLayerShell.set_layer(dialog, GtkLayerShell.Layer.OVERLAY)
+    GtkLayerShell.set_namespace(dialog, namespace)
+    GtkLayerShell.set_exclusive_zone(dialog, 0)
+    GtkLayerShell.set_keyboard_mode(dialog, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+    if parent.get_window() is not None:
+        monitor = parent.get_display().get_monitor_at_window(parent.get_window())
+        GtkLayerShell.set_monitor(dialog, monitor)
+
+
+def show_application_details(parent: Gtk.Window, app) -> None:
+    dialog = Gtk.Dialog(
+        title=f"{app.get_display_name()} — Details", transient_for=parent,
+        modal=True, destroy_with_parent=True,
+    )
+    dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+    view = Gtk.TextView(editable=False, cursor_visible=True, monospace=True)
+    view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    view.set_left_margin(12)
+    view.set_right_margin(12)
+    view.set_top_margin(12)
+    view.set_bottom_margin(12)
+    try:
+        details = application_details(app)
+    except (OSError, GLib.Error) as exc:
+        details = f"Could not read application details: {exc}"
+    view.get_buffer().set_text(details)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.add(view)
+    dialog.get_content_area().pack_start(scroller, True, True, 0)
+    _prepare_launcher_dialog(dialog, parent, "yui-application-details")
+    # Fit the details window on the narrow displays used by the mobile shell.
+    width, height = 620, 440
+    if parent.get_window() is not None:
+        monitor = parent.get_display().get_monitor_at_window(parent.get_window())
+        geometry = monitor.get_geometry()
+        width, height = min(width, geometry.width), min(height, geometry.height)
+    dialog.set_default_size(width, height)
+    # Layer surfaces renegotiate their natural size when wrapped text reflows.
+    # Keep the requested width as a minimum so that reflow cannot collapse it.
+    dialog.set_size_request(width, min(200, height))
+    dialog.show_all()
+    try:
+        dialog.run()
+    finally:
+        dialog.destroy()
+    if parent.get_visible():
+        parent.present()
 
 
 def show_error_dialog(parent: Gtk.Window, title: str, detail: str,
@@ -27,14 +110,7 @@ def show_error_dialog(parent: Gtk.Window, title: str, detail: str,
     if on_retry is not None:
         dialog.add_button("Try Again in foot", Gtk.ResponseType.APPLY)
     dialog.format_secondary_text(detail)
-    GtkLayerShell.init_for_window(dialog)
-    GtkLayerShell.set_layer(dialog, GtkLayerShell.Layer.OVERLAY)
-    GtkLayerShell.set_namespace(dialog, "yui-error")
-    GtkLayerShell.set_exclusive_zone(dialog, 0)
-    GtkLayerShell.set_keyboard_mode(dialog, GtkLayerShell.KeyboardMode.EXCLUSIVE)
-    if parent.get_window() is not None:
-        monitor = parent.get_display().get_monitor_at_window(parent.get_window())
-        GtkLayerShell.set_monitor(dialog, monitor)
+    _prepare_launcher_dialog(dialog, parent, "yui-error")
     try:
         while dialog.run() == Gtk.ResponseType.APPLY and on_retry is not None:
             try:

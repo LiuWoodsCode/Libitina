@@ -17,7 +17,7 @@ from pathlib import Path
 KINDS = ("Internal", "Production")
 ENVIRONMENTS = ("Global", "Phosh", "Yui")
 # Repository files needed alongside an installed application's own payload.
-SHARED_FILES = {"YuiSettings": ("YuiHirasawa/displays.py",)}
+SHARED_FILES = {"YuiSettings": ("YuiHirasawa/displays.py", "YuiHirasawa/settings.py")}
 
 
 @dataclass(frozen=True)

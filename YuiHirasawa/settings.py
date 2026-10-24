@@ -10,28 +10,52 @@ from typing import Any, Mapping
 
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
-DEFAULT_CONFIG: dict[str, Any] = {"wallpaper_enabled": True, "shell": "desktop"}
+DEFAULT_CONFIG: dict[str, Any] = {
+    "wallpaper_enabled": True, "shell": "desktop", "software_rendering_apps": [],
+}
 SHELL_OPTIONS = ("desktop", "mobile")
+
+
+def validate_software_rendering_apps(app_ids: list[str]) -> list[str]:
+    """Validate exact desktop IDs and remove duplicates, retaining their order."""
+    if not isinstance(app_ids, list) or any(
+        not isinstance(app_id, str)
+        or not app_id.endswith(".desktop")
+        or app_id == ".desktop"
+        or "/" in app_id
+        or any(character.isspace() for character in app_id)
+        for app_id in app_ids
+    ):
+        raise ValueError("Use desktop IDs such as org.example.App.desktop, without paths or spaces.")
+    return list(dict.fromkeys(app_ids))
 
 
 def load_config() -> dict[str, Any]:
     """Load the Yui configuration, creating it with defaults when absent."""
     if not CONFIG_PATH.exists():
         save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
+        return {**DEFAULT_CONFIG, "software_rendering_apps": []}
 
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return DEFAULT_CONFIG.copy()
+        return {**DEFAULT_CONFIG, "software_rendering_apps": []}
 
-    value = data.get("wallpaper_enabled") if isinstance(data, dict) else None
-    shell = data.get("shell") if isinstance(data, dict) else None
+    data = data if isinstance(data, dict) else {}
+    value = data.get("wallpaper_enabled")
+    shell = data.get("shell")
+    app_ids = data.get("software_rendering_apps", [])
+    try:
+        app_ids = validate_software_rendering_apps(app_ids)
+    except ValueError:
+        app_ids = []
     return {
+        **data,
         "wallpaper_enabled": value
         if isinstance(value, bool)
         else DEFAULT_CONFIG["wallpaper_enabled"],
         "shell": shell if shell in SHELL_OPTIONS else DEFAULT_CONFIG["shell"],
+        "software_rendering_apps": app_ids,
     }
 
 
@@ -45,6 +69,7 @@ def save_config(config: Mapping[str, Any]) -> None:
     shell = config.get("shell", DEFAULT_CONFIG["shell"])
     if shell not in SHELL_OPTIONS:
         raise ValueError("shell must be 'desktop' or 'mobile'")
+    app_ids = validate_software_rendering_apps(config.get("software_rendering_apps", []))
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -58,7 +83,8 @@ def save_config(config: Mapping[str, Any]) -> None:
             delete=False,
         ) as temporary:
             json.dump(
-                {"wallpaper_enabled": wallpaper_enabled_value, "shell": shell},
+                {**config, "wallpaper_enabled": wallpaper_enabled_value,
+                 "shell": shell, "software_rendering_apps": app_ids},
                 temporary,
                 indent=2,
             )
@@ -90,4 +116,12 @@ def set_shell(shell: str) -> None:
         raise ValueError("shell must be 'desktop' or 'mobile'")
     config = load_config()
     config["shell"] = shell
+    save_config(config)
+
+
+def set_software_rendering_apps(app_ids: list[str]) -> None:
+    """Choose applications that Yui should launch using software rendering."""
+    app_ids = validate_software_rendering_apps(app_ids)
+    config = load_config()
+    config["software_rendering_apps"] = app_ids
     save_config(config)
