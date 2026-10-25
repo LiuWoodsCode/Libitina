@@ -93,8 +93,8 @@ Unreadable or removed custom images fall back to Zohran.
 Desktop mode starts the built-in background-layer utility automatically, with a
 surface for each monitor (including hotplugged displays). It can also run alone
 with `python3 wallpaper.py` in a Wayland session; avoid running it alongside the
-desktop shell. The renderer requires GTK 3, gtk-layer-shell, and PyGObject Cairo
-support (`python3-gi-cairo` on Debian, included by the installer).
+desktop shell. The renderer uses GTK 3, gtk-layer-shell, and GdkPixbuf for scaling and centered
+cropping; it does not require the Python Cairo foreign-struct converter.
 
 The launcher routes its own logs and inherited stdout/stderr from the shell,
 notification daemon, display worker, and session compositor to the systemd

@@ -1,6 +1,7 @@
 """Live, cover-scaled wallpapers and a per-monitor Wayland background utility."""
 
 import logging
+import math
 
 import gi
 
@@ -12,14 +13,21 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
 from settings import load_config, wallpaper_path
 
 
-class Wallpaper(Gtk.DrawingArea):
+class Wallpaper(Gtk.Image):
     def __init__(self):
         super().__init__()
         self.set_hexpand(True)
         self.set_vexpand(True)
         self._state = None
         self._source = None
-        self.connect("draw", self._draw)
+        self._scaled_size = None
+        self.set_halign(Gtk.Align.FILL)
+        self.set_valign(Gtk.Align.FILL)
+        self.get_style_context().add_class("yui-wallpaper")
+        provider = Gtk.CssProvider()
+        provider.load_from_data(b".yui-wallpaper { background-color: black; }")
+        self.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.connect("size-allocate", self._size_allocate)
         self._timer = GLib.timeout_add_seconds(1, self._sync)
         self.connect("destroy", lambda *_: GLib.source_remove(self._timer))
         self._sync()
@@ -40,24 +48,40 @@ class Wallpaper(Gtk.DrawingArea):
                         self._source = GdkPixbuf.Pixbuf.new_from_file(str(wallpaper_path({"wallpaper": "zohran"})))
                     except GLib.Error:
                         pass
-            self.queue_draw()
+            self._scaled_size = None
+            self.clear()
+            self._update_image(self.get_allocated_width(), self.get_allocated_height())
         return GLib.SOURCE_CONTINUE
 
-    def _draw(self, _widget, context):
-        context.set_source_rgb(0, 0, 0)
-        context.paint()
-        if self._source is None:
-            return False
-        width, height = self.get_allocated_width(), self.get_allocated_height()
+    # A wallpaper fills its allocation; the image's pixel size must never set
+    # the window's minimum size (especially after a monitor resolution change).
+    def do_get_preferred_width(self):
+        return (0, 0)
+
+    def do_get_preferred_height(self):
+        return (0, 0)
+
+    def _size_allocate(self, _widget, allocation):
+        self._update_image(allocation.width, allocation.height)
+
+    def _update_image(self, width, height):
+        if self._source is None or width <= 0 or height <= 0:
+            return
+        if self._scaled_size == (width, height):
+            return
         source_width, source_height = self._source.get_width(), self._source.get_height()
         scale = max(width / source_width, height / source_height)
-        context.save()
-        context.translate((width - source_width * scale) / 2, (height - source_height * scale) / 2)
-        context.scale(scale, scale)
-        Gdk.cairo_set_source_pixbuf(context, self._source, 0, 0)
-        context.paint()
-        context.restore()
-        return False
+        scaled_width = max(width, math.ceil(source_width * scale))
+        scaled_height = max(height, math.ceil(source_height * scale))
+        cover = self._source.scale_simple(scaled_width, scaled_height, GdkPixbuf.InterpType.BILINEAR)
+        if cover is None:
+            return
+        cropped = GdkPixbuf.Pixbuf.new_subpixbuf(
+            cover, (scaled_width - width) // 2, (scaled_height - height) // 2,
+            width, height,
+        )
+        self.set_from_pixbuf(cropped)
+        self._scaled_size = (width, height)
 
 
 class DesktopWallpaper:
