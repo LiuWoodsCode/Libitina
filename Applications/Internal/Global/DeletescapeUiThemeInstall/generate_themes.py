@@ -16,7 +16,9 @@ PALETTES = {
 
 def stylesheet(mode):
     colors = dict(PALETTES[mode], accent='#FF00AA', error_color='#E5484D',
-                  warning_color='#D69919', success_color='#30A46C')
+                  warning_color='#D69919', success_color='#30A46C',
+                  section_bg='mix(@bg, @fg, 0.04)',
+                  section_border='mix(@bg, @fg, 0.14)')
     aliases = dict(theme_bg_color='bg', theme_fg_color='fg', theme_base_color='bg',
                    theme_text_color='fg', theme_selected_bg_color='accent',
                    theme_selected_fg_color='fg', insensitive_fg_color='muted',
