@@ -169,6 +169,7 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
 
     def __init__(self):
         super().__init__(title="Taskbar")
+        self.get_style_context().add_class("yui-taskbar")
         self._wayland = WaylandWindowCollector()
         self._groups: dict[str, list[WindowInfo]] = {}
         self._buttons: dict[str, Gtk.Button] = {}
@@ -230,7 +231,7 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
     def _install_css(self):
         provider = Gtk.CssProvider()
         provider.load_from_data(b"""
-        window { font-size: 12px; }
+        window.yui-taskbar { font-size: 12px; }
 
         button.taskbar-button {
             border-radius: 0;
