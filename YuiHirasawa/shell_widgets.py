@@ -15,6 +15,25 @@ from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
 from app_launch import application_details
 
 
+def round_window_corners(window: Gtk.Window, radius: int = 12) -> None:
+    """Let GTK paint an opaque themed background with transparent corners."""
+    visual = window.get_screen().get_rgba_visual()
+    if visual is not None:
+        window.set_visual(visual)
+    window.set_app_paintable(False)
+    window.get_style_context().add_class("rounded-shell-window")
+    provider = Gtk.CssProvider()
+    provider.load_from_data(f"""
+        .rounded-shell-window {{
+            background-image: none;
+            background-color: alpha(@theme_bg_color, 1);
+            border-radius: {radius}px;
+            padding: {radius}px;
+        }}
+    """.encode())
+    window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
 def attach_application_menu(button: Gtk.Button, parent: Gtk.Window, app, on_open) -> None:
     """Offer the same Open and Details actions in either launcher layout."""
     menu = Gtk.Menu()

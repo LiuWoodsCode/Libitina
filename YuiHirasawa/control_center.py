@@ -5,7 +5,7 @@ import threading
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 import status_backend as backend
-from shell_widgets import _prepare_launcher_dialog
+from shell_widgets import _prepare_launcher_dialog, round_window_corners
 
 
 class StatusControls:
@@ -101,14 +101,16 @@ class StatusControls:
         if self.dialog:
             self.dialog.present()
             return
-        self.dialog = Gtk.Dialog(title='Control Center', transient_for=self.parent,
+        # Match the launcher's plain window: Gtk.Dialog adds theme-owned content
+        # and action backgrounds that can cover the rounded window corners.
+        self.dialog = Gtk.Window(title='Control Center', transient_for=self.parent,
                                  destroy_with_parent=True)
-        self.dialog.add_button('Close', Gtk.ResponseType.CLOSE)
-        self.dialog.connect('response', lambda *_: self.dialog.destroy())
+        self.dialog.set_decorated(False)
         self.dialog.connect('destroy', self._dialog_closed)
         self.dialog.connect('key-press-event', self._key)
         _prepare_launcher_dialog(self.dialog, self.parent, 'yui-control-center')
         if self.bottom_right:
+            round_window_corners(self.dialog)
             GtkLayerShell.set_anchor(self.dialog, GtkLayerShell.Edge.RIGHT, True)
             GtkLayerShell.set_anchor(self.dialog, GtkLayerShell.Edge.BOTTOM, True)
             # The taskbar's exclusive zone already reserves the space below us.
@@ -124,7 +126,12 @@ class StatusControls:
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.add(self.body)
-        self.dialog.get_content_area().pack_start(scroller, True, True, 0)
+        contents = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        contents.pack_start(scroller, True, True, 0)
+        close = Gtk.Button(label='Close', halign=Gtk.Align.END)
+        close.connect('clicked', lambda *_: self.dialog.destroy())
+        contents.pack_end(close, False, False, 0)
+        self.dialog.add(contents)
         self._built = False
         if self.data:
             self._build()

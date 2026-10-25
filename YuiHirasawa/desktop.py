@@ -19,7 +19,7 @@ from backend import (
 from control_center import StatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
-from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu
+from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu, round_window_corners
 
 
 class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
@@ -29,6 +29,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
     def __init__(self):
         super().__init__(title="Applications")
         self.set_decorated(False)
+        round_window_corners(self)
         self.set_resizable(False)
         self.connect("key-press-event", self._on_key_press)
 
