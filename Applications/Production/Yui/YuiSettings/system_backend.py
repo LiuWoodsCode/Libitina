@@ -312,3 +312,30 @@ def set_power_profile(profile: str):
     dbus_call("net.hadess.PowerProfiles", "/net/hadess/PowerProfiles",
               "org.freedesktop.DBus.Properties", "Set", "(ssv)",
               ("net.hadess.PowerProfiles", "ActiveProfile", GLib.Variant("s", profile)))
+
+
+def backlights(directory="/sys/class/backlight"):
+    """Read hardware backlights; keyboard LEDs are intentionally excluded."""
+    from pathlib import Path
+    devices = []
+    for device in sorted(Path(directory).glob("*")):
+        try:
+            maximum = int((device / "max_brightness").read_text())
+            current = int((device / "brightness").read_text())
+            if maximum > 0:
+                devices.append({"name": device.name,
+                                "percent": max(1, min(100, round(current * 100 / maximum)))})
+        except (OSError, ValueError):
+            continue
+    return devices
+
+
+def set_brightness(device, percent):
+    """Use brightnessctl's device permissions instead of writing sysfs as root."""
+    if not device or "/" in device or device.startswith("-"):
+        raise ValueError("Invalid backlight device.")
+    percent = int(percent)
+    if not 1 <= percent <= 100:
+        raise ValueError("Brightness must be between 1 and 100 percent.")
+    run("brightnessctl", "--class=backlight", "--device=" + device,
+        "set", f"{percent}%", timeout=5)

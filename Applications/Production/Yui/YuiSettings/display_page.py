@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 import time
+import shutil
 
 from gi.repository import GLib, Gtk
 from service_page import (PreferencesPage, action_row, choice_row, confirm, field, group, label, make_refresh_button, size_dialog)
@@ -13,6 +14,71 @@ from service_page import (PreferencesPage, action_row, choice_row, confirm, fiel
 if not Path(__file__).with_name("displays.py").is_file():
     sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "YuiHirasawa"))
 import displays
+import system_backend
+
+
+class BrightnessControls(Gtk.Box):
+    """Immediate hardware brightness controls, independent of layout Apply."""
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self._alive = True
+        self._busy = False
+        self._rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.pack_start(self._rows, False, False, 0)
+        self._status = label()
+        self.pack_start(self._status, False, False, 0)
+        self.connect("destroy", self._destroyed)
+        self.connect("map", self.reload)
+
+    def _destroyed(self, *_):
+        self._alive = False
+
+    def reload(self, *_args, operation=None):
+        if self._busy or not self._alive:
+            return
+        self._busy = True
+        self._rows.set_sensitive(False)
+
+        def work():
+            error = ""
+            try:
+                if operation:
+                    operation()
+            except (OSError, ValueError, system_backend.ServiceError) as exc:
+                error = str(exc)
+            devices = system_backend.backlights()
+            GLib.idle_add(done, devices, error)
+
+        def done(devices, error):
+            if not self._alive:
+                return False
+            self._busy = False
+            for child in self._rows.get_children():
+                child.destroy()
+            rows = group(self._rows, "Brightness")
+            available = shutil.which("brightnessctl") is not None
+            for device in devices:
+                slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
+                slider.set_digits(0)
+                slider.set_value(device["percent"])
+                slider.set_sensitive(available)
+                slider.set_tooltip_text("Brightness (%)")
+                field(rows, device["name"], slider)
+                button = Gtk.Button(label="Set brightness")
+                button.set_sensitive(available)
+                button.connect("clicked", lambda _button, name=device["name"], scale=slider:
+                               self.reload(operation=lambda: system_backend.set_brightness(name, scale.get_value())))
+                action_row(rows, "Apply brightness", "Applies immediately", suffix=button)
+            if not devices:
+                action_row(rows, "Brightness control unavailable",
+                           "No supported hardware backlight was found.")
+            self._status.set_text(error or ("Install brightnessctl to change brightness." if devices and not available else ""))
+            self._rows.set_sensitive(True)
+            self.show_all()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
 
 class DisplayPage(Gtk.Box):
@@ -28,6 +94,8 @@ class DisplayPage(Gtk.Box):
         self._save.connect("clicked", self._save_clicked)
         self.header_actions = [self._save]
         page = PreferencesPage()
+        self._brightness = BrightnessControls()
+        page.body.pack_start(self._brightness, False, False, 0)
         self._status = label()
         self._status.set_selectable(True)
         self._status.set_no_show_all(True)
@@ -44,6 +112,7 @@ class DisplayPage(Gtk.Box):
         GLib.source_remove(self._timer)
 
     def _reload(self, *_args, use_saved=True):
+        self._brightness.reload()
         if self._busy or not self._alive:
             return
         if self._dirty and not confirm(self, "Discard display changes?", "The changes have not been applied yet."):

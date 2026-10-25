@@ -62,6 +62,7 @@ else
 fi
 
 packages=(
+    brightnessctl
     dbus-user-session
     foot
     gir1.2-gstreamer-1.0

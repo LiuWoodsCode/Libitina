@@ -5,6 +5,13 @@ this directory, or install with `python3 Applications/install.py --environment
 Yui` from the repository root. The installer copies all page modules and bundles
 the shared Yui settings and display backends.
 
+Display includes brightness sliders for available Linux hardware backlights.
+Choose a percentage and click **Set brightness** to apply it immediately,
+independently of the monitor layout's Apply button. Requires `brightnessctl`
+(included by the Debian installer) and permission to control the backlight.
+Unsupported displays show an unavailable message; external monitor DDC/CI
+brightness is not supported.
+
 Settings pages use native libhandy preference groups and action rows within a
 centered, width-constrained layout. The app supplies no appearance CSS:
 colors, borders, icons, and widget appearance come from the current GTK and icon themes.
