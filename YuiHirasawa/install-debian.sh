@@ -62,6 +62,7 @@ else
 fi
 
 packages=(
+    bluez
     brightnessctl
     dbus-user-session
     foot
@@ -72,6 +73,10 @@ packages=(
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
     labwc
+    network-manager
+    pipewire-bin
+    upower
+    wireplumber
     wlr-randr
     libpam0g
     python3

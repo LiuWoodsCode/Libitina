@@ -14,9 +14,9 @@ from backend import (
     ApplicationCatalog,
     WaylandWindowCollector,
     WindowInfo,
-    open_audio_settings,
     run_session_action,
 )
+from control_center import StatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
 from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu
@@ -165,12 +165,6 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
     HEIGHT = 36
     ICON_SIZE = 32
     STATUS_ICON_SIZE = 20
-    STATUS_PLACEHOLDERS = (
-        ("network", "Network", "network-wireless-signal-excellent-symbolic"),
-        ("bt", "Bluetooth", "bluetooth-active-symbolic"),
-        ("audio", "Audio", "audio-volume-high-symbolic"),
-        ("pwr", "Battery", "battery-full-symbolic"),
-    )
 
     def __init__(self):
         super().__init__(title="Taskbar")
@@ -206,15 +200,11 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         self._tray = SystemTray()
         status_box.pack_start(self._tray, False, False, 0)
-        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
-            placeholder_box.pack_start(
-                self._status_placeholder_button(icon_type, tooltip, icon_path),
-                False,
-                False,
-                0,
-            )
-        status_box.pack_start(placeholder_box, False, False, 0)
+        status_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._status_controls = StatusControls(self, self.STATUS_ICON_SIZE, bottom_right=True)
+        for kind in ("network", "bt", "audio", "pwr"):
+            status_buttons.pack_start(self._status_controls.button(kind), False, False, 0)
+        status_box.pack_start(status_buttons, False, False, 0)
         self._clock = Gtk.Label()
         self._clock.get_style_context().add_class("clock")
         status_box.pack_start(self._clock, False, False, 0)
@@ -229,44 +219,6 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
         self._update_clock()
         GLib.timeout_add_seconds(1, self._update_clock)
         GLib.timeout_add(100, self._refresh_tick)
-
-    def _status_placeholder_button(
-            self, icon_type: str, tooltip: str, icon_name: str) -> Gtk.Button:
-        button = Gtk.Button()
-        button.get_style_context().add_class("system-status-button")
-        image = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
-        image.set_pixel_size(self.STATUS_ICON_SIZE)
-        button.add(image)
-        button.set_tooltip_text(tooltip)
-        button.connect("clicked", self._show_status_placeholder, icon_type)
-        return button
-
-    def _show_status_placeholder(
-            self, _button: Gtk.Button, icon_type: str) -> None:
-        if icon_type == "audio":
-            try:
-                open_audio_settings()
-            except OSError as exc:
-                show_error_dialog(self, "Could not open pavucontrol.", str(exc))
-            return
-        if icon_type == "network":
-            text = f"{icon_type} is not currently implemented, for now use either the Ranboo API's ironmouse endpoints or nmcli."
-        if icon_type == "bt":
-            text = f"{icon_type} is not currently implemented, for now use bluetoothctl"
-        if icon_type == "audio":
-            text = f"{icon_type} is not currently implemented, wait how did we get here???"
-        if icon_type == "pwr":
-            text = f"{icon_type} is not currently implemented, the ranboo battery sharing APIs currently aren't implemented and because of the way that eben is designed, upower is not too helpful (except for peripherals and iDevices)"
-
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=text,
-        )
-        dialog.run()
-        dialog.destroy()
 
     def _update_clock(self) -> bool:
         now = GLib.DateTime.new_now_local()

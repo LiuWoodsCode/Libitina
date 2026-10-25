@@ -17,8 +17,8 @@ from backend import (
     KeyboardVisibilityMonitor,
     WaylandWindowCollector,
     WindowInfo,
-    open_audio_settings,
 )
+from control_center import StatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
 from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu
@@ -199,12 +199,6 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
 class StatusBar(Gtk.Window):
     HEIGHT = 16
     STATUS_ICON_SIZE = 16
-    STATUS_PLACEHOLDERS = (
-        ("network", "Network", "network-wireless-signal-excellent-symbolic"),
-        ("bt", "Bluetooth", "bluetooth-active-symbolic"),
-        ("audio", "Audio", "audio-volume-high-symbolic"),
-        ("pwr", "Battery", "battery-full-symbolic"),
-    )
 
     def __init__(self):
         super().__init__(title="Status Bar")
@@ -225,13 +219,9 @@ class StatusBar(Gtk.Window):
         bar.pack_start(self._clock, False, False, 0)
 
         status_icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
-            status_icons.pack_start(
-                self._status_placeholder_button(icon_type, tooltip, icon_path),
-                False,
-                False,
-                0,
-            )
+        self._status_controls = StatusControls(self, self.STATUS_ICON_SIZE)
+        for kind in ("network", "bt", "audio", "pwr"):
+            status_icons.pack_start(self._status_controls.button(kind), False, False, 0)
         bar.pack_end(status_icons, False, False, 0)
         self.add(bar)
 
@@ -239,42 +229,6 @@ class StatusBar(Gtk.Window):
         self.resize(1, 1)
         self._update_clock()
         GLib.timeout_add_seconds(1, self._update_clock)
-
-    def _status_placeholder_button(
-            self, icon_type: str, tooltip: str, icon_name: str) -> Gtk.Button:
-        button = Gtk.Button()
-        button.get_style_context().add_class("system-status-button")
-        image = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
-        image.set_pixel_size(self.STATUS_ICON_SIZE)
-        button.add(image)
-        button.set_tooltip_text(tooltip)
-        button.connect("clicked", self._show_status_placeholder, icon_type)
-        return button
-
-    def _show_status_placeholder(
-            self, _button: Gtk.Button, icon_type: str) -> None:
-        if icon_type == "audio":
-            try:
-                open_audio_settings()
-            except OSError as exc:
-                show_error_dialog(self, "Could not open pavucontrol.", str(exc))
-            return
-        if icon_type == "network":
-            text = f"{icon_type} is not currently implemented, for now use either the Ranboo API's ironmouse endpoints or nmcli."
-        if icon_type == "bt":
-            text = f"{icon_type} is not currently implemented, for now use bluetoothctl"
-        if icon_type == "pwr":
-            text = f"{icon_type} is not currently implemented, the ranboo battery sharing APIs currently aren't implemented and because of the way that eben is designed, upower is not too helpful (except for peripherals and iDevices)"
-
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=text,
-        )
-        dialog.run()
-        dialog.destroy()
 
     def _update_clock(self) -> bool:
         now = GLib.DateTime.new_now_local()

@@ -1,5 +1,21 @@
 # Yui display settings
 
+The desktop taskbar and mobile status bar refresh their network, Bluetooth,
+volume, and battery icons every three seconds. Icons show Wi-Fi signal strength
+or wired/disconnected state, audio level/mute, and battery level/charging.
+Battery status uses UPower's combined system battery, excluding peripherals.
+
+Click or tap any of these four buttons to open **Control Center**. It provides
+volume and hardware brightness sliders, mute, Wi-Fi, and Bluetooth switches,
+plus connection and battery status. Slider changes apply immediately after a
+short pause. Close the window with **Close** or Escape. Unavailable controls are
+disabled or marked unavailable, and failed changes display their error.
+Brightness requires a supported Linux backlight and `brightnessctl`; external
+monitor DDC/CI is not supported. Wi-Fi uses NetworkManager, audio uses
+WirePlumber (`wpctl`), Bluetooth uses BlueZ, and battery status uses UPower.
+The Debian installer includes these dependencies. Status reads and control
+changes run off the UI thread, and each service can fail independently.
+
 When `shell` is set to `mobile` in `~/.config/yui/config.json`, the YuiHirasawa
 Labwc login session uses a temporary copy of the merged `rc.xml` settings with
 a rule that opens all windows maximized and without server-side decorations.
