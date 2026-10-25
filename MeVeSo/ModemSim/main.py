@@ -312,6 +312,15 @@ class ModemState:
         self.lock = threading.RLock()
         self.print_lock = threading.Lock()
         self.sessions: List["ATSession"] = []
+        self.frozen = False
+        self._reset_state()
+        self.stop_event = threading.Event()
+        self._ring_thread = threading.Thread(target=self._ring_worker, name="ring-worker", daemon=True)
+        self._ring_thread.start()
+
+    def _reset_state(self) -> None:
+        """Restore volatile modem state from the current configuration, silently."""
+        cfg = self.cfg
         self.sms: Dict[int, SMS] = {}
         self.next_sms_index = 1
         self.next_message_ref = 1
@@ -329,9 +338,34 @@ class ModemState:
         }
         self.last_reject_cause = 0
         self.cbs_serial = 1
-        self.stop_event = threading.Event()
-        self._ring_thread = threading.Thread(target=self._ring_worker, name="ring-worker", daemon=True)
-        self._ring_thread.start()
+
+    def simulate_failure(self, seconds: int, mode: str) -> None:
+        """Drop traffic during a hang, then optionally reboot without URCs."""
+        if seconds < 0 or mode not in ("keep", "hang", "crash"):
+            raise ValueError("use bad SECONDS|instant keep|hang|crash (SECONDS >= 0)")
+        with self.lock:
+            if self.frozen:
+                raise ValueError("a simulated failure is already in progress")
+            self.frozen = True
+
+        def recover() -> None:
+            if self.stop_event.wait(seconds):
+                return
+            with self.lock:
+                if mode != "hang":
+                    self._reset_state()
+                    for session in list(self.sessions):
+                        if mode == "crash":
+                            session.close()
+                        else:
+                            session.reset_state()
+                self.frozen = False
+            self.log(f"simulated failure complete ({mode})")
+
+        if seconds:
+            threading.Thread(target=recover, name="bad-recovery", daemon=True).start()
+        else:
+            recover()
 
     @property
     def rat(self) -> str:
@@ -517,18 +551,19 @@ class ModemState:
             if self.call is not None:
                 return False
             self.call = Call(index=1, direction=0, state=2, number=number)
+            call = self.call
         self.log(f"outgoing call to {number}", "CALL")
 
         def progress() -> None:
             time.sleep(0.4)
             with self.lock:
-                if self.call and self.call.direction == 0 and self.call.number == number:
+                if self.call is call and not self.frozen:
                     self.call.state = 3
             time.sleep(0.6)
             with self.lock:
-                if self.call and self.call.direction == 0 and self.call.number == number:
+                if self.call is call and not self.frozen:
                     self.call.state = 0
-            self.broadcast_urc(f'+COLP: "{number}",145')
+                    self.broadcast_urc(f'+COLP: "{number}",145')
 
         threading.Thread(target=progress, name="call-progress", daemon=True).start()
         return True
@@ -562,6 +597,10 @@ class ATSession(threading.Thread):
         self.label = f"client-{id(self) & 0xFFFF:04x}"
         self.send_lock = threading.Lock()
         self.closed = threading.Event()
+        self.reset_state()
+
+    def reset_state(self) -> None:
+        """Reset parser and per-client settings without replacing the transport."""
         self.buffer = bytearray()
         self.data_mode = False
         self.data_escape_buffer = bytearray()
@@ -620,12 +659,20 @@ class ATSession(threading.Thread):
                 if not data:
                     break
                 self.modem.log(f"{self.label} RX {self._wire_repr(data)}", "AT RX")
-                self._feed(data)
+                with self.modem.lock:
+                    if not self.modem.frozen:
+                        self._feed(data)
         finally:
             self.close()
             self.modem.unregister_session(self)
 
     def _send(self, data: bytes) -> None:
+        with self.modem.lock:
+            if self.modem.frozen:
+                return
+            self._send_unfrozen(data)
+
+    def _send_unfrozen(self, data: bytes) -> None:
         if self.closed.is_set():
             return
         self.modem.log(f"{self.label} TX {self._wire_repr(data)}", "AT TX")
@@ -1942,6 +1989,25 @@ class DebugConsole(cmd.Cmd):
             return
         session.close()
         print(f"Disconnected {session.label}.")
+
+    def do_bad(self, arg: str) -> None:
+        """bad SECONDS|instant keep|hang|crash  -- silent modem failure.
+
+        Discard TX and suppress all output for SECONDS (a nonnegative integer).
+        keep: reset state, preserve transports; hang: resume with state intact;
+        crash: reset state and close transports. instant skips the hang.
+        """
+        parts = arg.lower().split()
+        if len(parts) != 2:
+            print("Usage: bad SECONDS|instant keep|hang|crash")
+            return
+        try:
+            seconds = 0 if parts[0] == "instant" else int(parts[0])
+            self.modem.simulate_failure(seconds, parts[1])
+        except ValueError as error:
+            print(f"Invalid bad command: {error}")
+            return
+        print(f"Silent failure: {seconds}s, {parts[1]}.")
 
     def do_reset(self, arg: str) -> None:
         """reset  -- warm-reset calls, messages, contexts, radio and client settings."""
