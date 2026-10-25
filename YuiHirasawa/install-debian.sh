@@ -83,6 +83,7 @@ packages=(
     python3-dbus
     python3-dbus-next
     python3-gi
+    python3-gi-cairo
     python3-pywayland
 )
 

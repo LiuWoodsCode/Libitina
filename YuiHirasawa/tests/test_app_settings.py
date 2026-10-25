@@ -40,6 +40,32 @@ class AppSettingsTests(unittest.TestCase):
         settings.set_software_rendering_apps([])
         self.assertEqual(settings.load_config()["software_rendering_apps"], [])
 
+    def test_wallpaper_selection_preserves_settings(self):
+        settings.set_shell("mobile")
+        settings.set_wallpaper_enabled(False)
+        for value, filename in (("zohran", "zohran.png"), ("shibuya", "shibuya.jpg"),
+                                ("/tmp/custom image.png", "custom image.png")):
+            settings.set_wallpaper(value)
+            config = settings.load_config()
+            self.assertEqual(config["wallpaper"], value)
+            self.assertEqual(settings.wallpaper_path(config).name, filename)
+            self.assertFalse(config["wallpaper_enabled"])
+            self.assertEqual(config["shell"], "mobile")
+
+    def test_invalid_wallpaper_does_not_overwrite_config(self):
+        settings.set_wallpaper("shibuya")
+        saved = self.path.read_bytes()
+        for value in (None, 42, "", "relative/image.png", []):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                settings.set_wallpaper(value)
+            self.assertEqual(self.path.read_bytes(), saved)
+
+    def test_old_and_malformed_wallpaper_configs_use_default(self):
+        self.path.parent.mkdir()
+        for data in ({}, {"wallpaper": []}, {"wallpaper": "relative.png"}):
+            self.path.write_text(json.dumps(data))
+            self.assertEqual(settings.load_config()["wallpaper"], "zohran")
+
     def test_invalid_ids_leave_saved_config_untouched(self):
         settings.set_software_rendering_apps(["valid.desktop"])
         saved = self.path.read_bytes()

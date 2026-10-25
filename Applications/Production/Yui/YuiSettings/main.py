@@ -11,7 +11,8 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Handy", "1")
-from gi.repository import Gio, GLib, Gtk, Handy, Pango
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf, Gio, GLib, Gtk, Handy, Pango
 
 from service_page import PreferencesPage, action_row, choice_row, group, switch_row
 from display_page import DisplayPage
@@ -20,7 +21,7 @@ from network_pages import CellularPage, NetworkPage, WifiPage
 from system_pages import AccessibilityPage, AudioPage, DateTimePage, PowerPage
 from settings import (
     load_config, set_shell, set_software_rendering_apps, set_wallpaper_enabled,
-    wallpaper_enabled,
+    wallpaper_enabled, set_wallpaper,
 )
 
 
@@ -231,7 +232,84 @@ class SettingsWindow(Handy.ApplicationWindow):
         page = PreferencesPage()
         widget = switch_row(group(page.body), "Wallpaper", wallpaper_enabled())
         widget.connect("notify::active", self._on_wallpaper_toggled)
+        config = load_config()
+        self._saved_wallpaper = config["wallpaper"]
+        self._wallpaper_choices = group(page.body, "Image")
+        self._wallpaper_choice = Gtk.ComboBoxText()
+        for value, title in (("zohran", "Zohran"), ("shibuya", "Shibuya"), ("custom", "Custom image")):
+            self._wallpaper_choice.append(value, title)
+        self._wallpaper_choice.set_active_id(
+            self._saved_wallpaper if self._saved_wallpaper in ("zohran", "shibuya") else "custom"
+        )
+        self._custom_wallpaper = self._saved_wallpaper if self._saved_wallpaper not in ("zohran", "shibuya") else None
+        action_row(self._wallpaper_choices, "Wallpaper image", suffix=self._wallpaper_choice)
+        self._custom_wallpaper_row = action_row(
+            self._wallpaper_choices, "Choose custom image…", self._custom_wallpaper or "Select an image file",
+            callback=self._choose_wallpaper,
+        )
+        self._wallpaper_choice.connect("changed", self._on_wallpaper_selected)
         self._stack.add_titled(page, "wallpaper", "Wallpaper")
+
+    def _save_wallpaper_selection(self, value):
+        try:
+            set_wallpaper(value)
+        except (OSError, ValueError) as exc:
+            dialog = Gtk.MessageDialog(
+                transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.CLOSE, text="Could not save the wallpaper image.",
+            )
+            dialog.format_secondary_text(str(exc))
+            dialog.run()
+            dialog.destroy()
+            return False
+        self._saved_wallpaper = value
+        return True
+
+    def _restore_wallpaper_choice(self):
+        self._wallpaper_choice.handler_block_by_func(self._on_wallpaper_selected)
+        self._wallpaper_choice.set_active_id(
+            self._saved_wallpaper if self._saved_wallpaper in ("zohran", "shibuya") else "custom"
+        )
+        self._wallpaper_choice.handler_unblock_by_func(self._on_wallpaper_selected)
+
+    def _on_wallpaper_selected(self, widget):
+        value = widget.get_active_id()
+        if value == "custom":
+            if self._custom_wallpaper:
+                if not self._save_wallpaper_selection(self._custom_wallpaper):
+                    self._restore_wallpaper_choice()
+            else:
+                self._choose_wallpaper()
+        elif not self._save_wallpaper_selection(value):
+            self._restore_wallpaper_choice()
+
+    def _choose_wallpaper(self):
+        dialog = Gtk.FileChooserDialog(
+            title="Choose wallpaper", transient_for=self, action=Gtk.FileChooserAction.OPEN,
+        )
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Select", Gtk.ResponseType.OK)
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Images")
+        image_filter.add_pixbuf_formats()
+        dialog.add_filter(image_filter)
+        if dialog.run() == Gtk.ResponseType.OK:
+            filename = dialog.get_filename()
+            try:
+                GdkPixbuf.Pixbuf.new_from_file(filename)
+            except (GLib.Error, TypeError) as exc:
+                error = Gtk.MessageDialog(
+                    transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
+                    buttons=Gtk.ButtonsType.CLOSE, text="Could not open the image.",
+                )
+                error.format_secondary_text(str(exc))
+                error.run()
+                error.destroy()
+            else:
+                if self._save_wallpaper_selection(filename):
+                    self._custom_wallpaper = filename
+                    self._custom_wallpaper_row.set_subtitle(filename)
+        dialog.destroy()
+        self._restore_wallpaper_choice()
 
     def _add_appearance_page(self) -> None:
         page = PreferencesPage()

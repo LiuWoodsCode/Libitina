@@ -11,8 +11,31 @@ from typing import Any, Mapping
 
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
-    "wallpaper_enabled": True, "shell": "desktop", "software_rendering_apps": [],
+    "wallpaper": "zohran", "wallpaper_enabled": True, "shell": "desktop", "software_rendering_apps": [],
 }
+WALLPAPERS = {"zohran": "zohran.png", "shibuya": "shibuya.jpg"}
+
+
+def validate_wallpaper(value: str) -> str:
+    if not isinstance(value, str) or not value or (value not in WALLPAPERS and not Path(value).is_absolute()):
+        raise ValueError("Choose a default wallpaper or an absolute image path.")
+    return value
+
+
+def wallpaper_path(config=None) -> Path:
+    value = (load_config() if config is None else config)["wallpaper"]
+    if value in WALLPAPERS:
+        return Path(__file__).resolve().parent / "assets/icons/backgrounds" / WALLPAPERS[value]
+    return Path(value)
+
+
+def set_wallpaper(value: str) -> None:
+    value = validate_wallpaper(value)
+    config = load_config()
+    config["wallpaper"] = value
+    save_config(config)
+
+
 SHELL_OPTIONS = ("desktop", "mobile")
 
 
@@ -42,6 +65,10 @@ def load_config() -> dict[str, Any]:
         return {**DEFAULT_CONFIG, "software_rendering_apps": []}
 
     data = data if isinstance(data, dict) else {}
+    try:
+        wallpaper = validate_wallpaper(data.get("wallpaper", "zohran"))
+    except ValueError:
+        wallpaper = "zohran"
     value = data.get("wallpaper_enabled")
     shell = data.get("shell")
     app_ids = data.get("software_rendering_apps", [])
@@ -51,6 +78,7 @@ def load_config() -> dict[str, Any]:
         app_ids = []
     return {
         **data,
+        "wallpaper": wallpaper,
         "wallpaper_enabled": value
         if isinstance(value, bool)
         else DEFAULT_CONFIG["wallpaper_enabled"],
@@ -66,6 +94,7 @@ def save_config(config: Mapping[str, Any]) -> None:
     )
     if not isinstance(wallpaper_enabled_value, bool):
         raise ValueError("wallpaper_enabled must be a boolean")
+    wallpaper = validate_wallpaper(config.get("wallpaper", "zohran"))
     shell = config.get("shell", DEFAULT_CONFIG["shell"])
     if shell not in SHELL_OPTIONS:
         raise ValueError("shell must be 'desktop' or 'mobile'")
@@ -83,7 +112,7 @@ def save_config(config: Mapping[str, Any]) -> None:
             delete=False,
         ) as temporary:
             json.dump(
-                {**config, "wallpaper_enabled": wallpaper_enabled_value,
+                {**config, "wallpaper": wallpaper, "wallpaper_enabled": wallpaper_enabled_value,
                  "shell": shell, "software_rendering_apps": app_ids},
                 temporary,
                 indent=2,

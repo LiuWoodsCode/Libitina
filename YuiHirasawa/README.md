@@ -84,3 +84,14 @@ Listed apps receive `LIBGL_ALWAYS_SOFTWARE=1`, `GSK_RENDERER=cairo`, and
 Apps with D-Bus activation use their desktop file's `Exec` command directly so
 the process receives these environment variables. Applications using other
 rendering engines or ignoring these variables may need their own settings.
+
+Wallpaper is shared by desktop and mobile modes. In YuiSettings → Wallpaper,
+choose Zohran, Shibuya, or a custom image file. Changes apply within one second;
+images fill the screen with a centered crop. Disabling wallpaper uses black.
+Unreadable or removed custom images fall back to Zohran.
+
+Desktop mode starts the built-in background-layer utility automatically, with a
+surface for each monitor (including hotplugged displays). It can also run alone
+with `python3 wallpaper.py` in a Wayland session; avoid running it alongside the
+desktop shell. The renderer requires GTK 3, gtk-layer-shell, and PyGObject Cairo
+support (`python3-gi-cairo` on Debian, included by the installer).

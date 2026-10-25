@@ -392,8 +392,15 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
 
 
 def main() -> int:
-    Taskbar().show_all()
-    Gtk.main()
+    from wallpaper import DesktopWallpaper
+
+    wallpaper = DesktopWallpaper()
+    taskbar = Taskbar()
+    taskbar.show_all()
+    try:
+        Gtk.main()
+    finally:
+        wallpaper.close()
     return 0
 
 
