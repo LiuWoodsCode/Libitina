@@ -52,37 +52,218 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.get_style_context().add_class("launcher")
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        app_grid = Gtk.FlowBox()
-        app_grid.set_selection_mode(Gtk.SelectionMode.NONE)
-        app_grid.set_homogeneous(True)
-        app_grid.set_min_children_per_line(4)
-        app_grid.set_max_children_per_line(4)
-        app_grid.set_column_spacing(8)
-        app_grid.set_row_spacing(8)
-        app_grid.set_valign(Gtk.Align.START)
-        app_grid.get_style_context().add_class("application-grid")
-        for app in self._applications():
-            app_grid.add(self._app_tile(app))
-        scroller.add(app_grid)
-        outer.pack_start(scroller, True, True, 0)
+        self._apps = self._applications()
+        self._grid_shape = None
+        self._current_page = 0
+        self._page_dots = []
+        self._rebuild_source = None
+        self._page_width = 1
+        self._page_height = 1
+        self._page_widgets = []
+        self._snap_source = None
+        self._page_drag_claimed = False
+        # A scrollable strip keeps both neighboring pages visible during a drag.
+        self._pages = Gtk.Layout()
+        self._page_adjustment = self._pages.get_hadjustment()
+        self.connect("unmap", self._on_pager_unmap)
+        self._pages.connect("size-allocate", self._on_grid_allocate)
+        outer.pack_start(self._pages, True, True, 0)
+
+        self._dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._dots.set_halign(Gtk.Align.CENTER)
+        self._dots.set_size_request(-1, 28)
+        outer.pack_start(self._dots, False, False, 0)
+        outer.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        outer.connect("scroll-event", self._on_page_scroll)
+        # Capture on the window so buttons cannot consume the touch sequence
+        # and drags on the empty (windowless) grid background also reach us.
+        self._swipe = Gtk.GestureDrag.new(self)
+        self._swipe.set_button(Gdk.BUTTON_PRIMARY)
+        self._swipe.set_touch_only(False)
+        self._swipe.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self._swipe.connect("drag-begin", self._on_page_drag_begin)
+        self._swipe.connect("drag-update", self._on_page_drag_update)
+        self._swipe.connect("drag-end", self._on_page_drag_end)
+        self._swipe.connect("cancel", self._on_page_drag_cancel)
         return outer
+
+    def _on_grid_allocate(self, _widget, allocation) -> None:
+        # Fixed app-sized cells; only the number of rows/columns changes.
+        shape = (max(1, (allocation.width - 36 + 16) // 104),
+                 max(1, (allocation.height - 36 + 14) // 120))
+        size_changed = (allocation.width, allocation.height) != (self._page_width, self._page_height)
+        self._page_width = max(1, allocation.width)
+        self._page_height = max(1, allocation.height)
+        if shape == self._grid_shape:
+            if size_changed:
+                self._layout_pages()
+                self._set_page(self._current_page, animate=False)
+            return
+        self._grid_shape = shape
+        if self._rebuild_source is None:
+            self._rebuild_source = GLib.idle_add(self._rebuild_pages)
+
+    def _rebuild_pages(self) -> bool:
+        self._rebuild_source = None
+        self._stop_page_snap()
+        self._page_drag_claimed = False
+        cols, rows = self._grid_shape
+        capacity = cols * rows
+        # Keep the first app on the current page in view after a resize.
+        first_app = self._current_page * getattr(self, "_page_capacity", capacity)
+        self._page_capacity = capacity
+        for child in self._pages.get_children():
+            child.destroy()
+        for child in self._dots.get_children():
+            child.destroy()
+        self._page_dots = []
+        self._page_widgets = []
+        count = max(1, (len(self._apps) + capacity - 1) // capacity)
+        for page_index in range(count):
+            grid = Gtk.Grid(column_spacing=16, row_spacing=14)
+            grid.set_halign(Gtk.Align.CENTER)
+            grid.set_valign(Gtk.Align.START)
+            grid.set_border_width(18)
+            grid.set_column_homogeneous(True)
+            # Reserve the full page width so sparse pages stay aligned.
+            grid.set_size_request(36 + cols * 88 + (cols - 1) * 16, -1)
+            start = page_index * capacity
+            for index, app in enumerate(self._apps[start:start + capacity]):
+                grid.attach(self._app_tile(app), index % cols, index // cols, 1, 1)
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            page.pack_start(grid, False, False, 0)
+            self._pages.put(page, page_index * self._page_width, 0)
+            self._page_widgets.append(page)
+            dot = Gtk.Button(label="●")
+            dot.get_style_context().add_class("page-dot")
+            dot.set_tooltip_text(f"Page {page_index + 1} of {count}")
+            dot.connect("clicked", lambda _button, i=page_index: self._set_page(i))
+            self._dots.pack_start(dot, False, False, 0)
+            self._page_dots.append(dot)
+        self._pages.show_all()
+        self._dots.show_all()
+        self._layout_pages()
+        self._set_page(min(first_app // capacity, count - 1), animate=False)
+        return GLib.SOURCE_REMOVE
+
+    def _layout_pages(self) -> None:
+        width, height = self._page_width, self._page_height
+        self._pages.set_size(max(1, len(self._page_widgets)) * width, height)
+        for index, page in enumerate(self._page_widgets):
+            page.set_size_request(width, height)
+            self._pages.move(page, index * width, 0)
+        self._page_adjustment.configure(
+            self._page_adjustment.get_value(), 0,
+            max(1, len(self._page_widgets)) * width, 1, width, width)
+
+    def _stop_page_snap(self) -> None:
+        if self._snap_source is not None:
+            GLib.source_remove(self._snap_source)
+            self._snap_source = None
+
+    def _on_pager_unmap(self, _widget) -> None:
+        self._page_drag_claimed = False
+        self._set_page(self._current_page, animate=False)
+
+    def _set_page(self, index: int, *, animate: bool = True) -> None:
+        if not self._page_dots:
+            return
+        self._current_page = max(0, min(index, len(self._page_dots) - 1))
+        self._stop_page_snap()
+        target = self._current_page * self._page_width
+        start = self._page_adjustment.get_value()
+        if animate and abs(target - start) > 0.5:
+            self._snap_start = start
+            self._snap_target = target
+            self._snap_started = GLib.get_monotonic_time()
+            self._snap_source = GLib.timeout_add(16, self._animate_page_snap)
+        else:
+            self._page_adjustment.set_value(target)
+        for i, dot in enumerate(self._page_dots):
+            style = dot.get_style_context()
+            (style.add_class if i == self._current_page else style.remove_class)("active")
+
+    def _animate_page_snap(self) -> bool:
+        progress = min(1.0, (GLib.get_monotonic_time() - self._snap_started) / 220_000)
+        eased = 1 - (1 - progress) ** 3
+        self._page_adjustment.set_value(
+            self._snap_start + (self._snap_target - self._snap_start) * eased)
+        if progress >= 1:
+            self._snap_source = None
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
+    def _on_page_scroll(self, _widget, event) -> bool:
+        if event.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT):
+            delta = 1
+        elif event.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.LEFT):
+            delta = -1
+        else:
+            # Accumulate touchpad deltas so one gesture does not skip every page.
+            success, dx, dy = event.get_scroll_deltas()
+            if not success:
+                return False
+            self._scroll_delta = getattr(self, "_scroll_delta", 0) + (dx if abs(dx) > abs(dy) else dy)
+            if abs(self._scroll_delta) < 1:
+                return True
+            delta = 1 if self._scroll_delta > 0 else -1
+            self._scroll_delta = 0
+        self._set_page(self._current_page + delta)
+        return True
+
+    def _on_page_drag_begin(self, _gesture, _x: float, _y: float) -> None:
+        self._stop_page_snap()
+        self._page_drag_claimed = False
+        self._drag_start_position = self._page_adjustment.get_value()
+        self._drag_start_page = min(len(self._page_dots) - 1,
+                                    int(self._drag_start_position / self._page_width + 0.5))
+
+    def _on_page_drag_update(self, gesture, dx: float, dy: float) -> None:
+        if not self._page_drag_claimed and abs(dx) >= 10 and abs(dx) > abs(dy):
+            # Claim before release, cancelling any app button's pending click.
+            self._page_drag_claimed = True
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        if self._page_drag_claimed:
+            limit = max(0, len(self._page_dots) - 1) * self._page_width
+            self._page_adjustment.set_value(
+                max(0, min(self._drag_start_position - dx, limit)))
+
+    def _on_page_drag_end(self, _gesture, dx: float, dy: float) -> None:
+        if self._page_drag_claimed:
+            target = self._drag_start_page
+            if abs(dx) >= max(48, self._page_width * 0.2):
+                target += 1 if dx < 0 else -1
+            self._set_page(target)
+        else:
+            # A tap can interrupt an in-progress snap; finish settling it.
+            self._set_page(self._current_page)
+        self._page_drag_claimed = False
+
+    def _on_page_drag_cancel(self, _gesture, _sequence) -> None:
+        self._page_drag_claimed = False
+        self._set_page(self._current_page)
 
     def _app_tile(self, app: Gio.DesktopAppInfo) -> Gtk.Widget:
         button = Gtk.Button()
         button.get_style_context().add_class("application-button")
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_size_request(88, 106)
+        button.set_halign(Gtk.Align.CENTER)
+        button.set_valign(Gtk.Align.START)
+        button.set_tooltip_text(app.get_display_name())
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         content.set_halign(Gtk.Align.CENTER)
         content.set_valign(Gtk.Align.CENTER)
         icon = app.get_icon()
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG) if icon else \
             Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DIALOG)
+        image.set_pixel_size(72)
         content.pack_start(image, False, False, 0)
         label = Gtk.Label(label=app.get_display_name())
         label.set_justify(Gtk.Justification.CENTER)
-        label.set_line_wrap(True)
-        label.set_lines(2)
+        label.set_max_width_chars(10)
+        label.set_width_chars(10)
+        label.set_single_line_mode(True)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         content.pack_start(label, False, False, 0)
         button.add(content)
@@ -110,6 +291,9 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         if event.keyval == Gdk.KEY_Escape:
             if not self._locked_open:
                 self.hide()
+            return True
+        if event.keyval in (Gdk.KEY_Page_Up, Gdk.KEY_Page_Down):
+            self._set_page(self._current_page + (1 if event.keyval == Gdk.KEY_Page_Down else -1))
             return True
         return False
 
@@ -235,13 +419,32 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         window.application-launcher .launcher,
         window.application-launcher scrolledwindow,
         window.application-launcher viewport,
-        window.application-launcher flowbox {
+        window.application-launcher flowbox,
+        window.application-launcher layout {
             background-color: transparent;
             background-image: none;
         }
         .application-grid { padding: 8px; }
         .application-grid flowboxchild { padding: 0; }
-        button.application-button { min-height: 92px; padding: 8px 5px; }
+        window.application-launcher button.application-button {
+            min-width: 80px; min-height: 98px; padding: 3px;
+            border: 1px solid transparent; border-radius: 12px;
+            background-color: transparent; background-image: none; box-shadow: none;
+        }
+        window.application-launcher button.application-button:hover,
+        window.application-launcher button.application-button:focus,
+        window.application-launcher button.application-button:active {
+            background-color: rgba(255, 255, 255, 0.18);
+        }
+        window.application-launcher button.application-button label {
+            color: white; font-size: 9pt; text-shadow: 0 1px 2px black;
+        }
+        window.application-launcher button.page-dot {
+            min-width: 16px; min-height: 20px; padding: 0;
+            border: none; background: transparent; box-shadow: none;
+            color: rgba(255, 255, 255, 0.45);
+        }
+        window.application-launcher button.page-dot.active { color: white; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
