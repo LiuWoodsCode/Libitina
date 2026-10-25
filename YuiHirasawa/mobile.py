@@ -24,6 +24,10 @@ from wallpaper import Wallpaper
 
 
 class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
+    ICON_SIZE = 64
+    ICON_SPACING = 18
+    GRID_MARGIN = 18
+
     def __init__(self):
         super().__init__(title="Applications")
         self._locked_open = False
@@ -53,6 +57,8 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         outer.get_style_context().add_class("launcher")
 
         self._apps = self._applications()
+        self._tile_width = None
+        self._tile_height = None
         self._grid_shape = None
         self._current_page = 0
         self._page_dots = []
@@ -88,9 +94,22 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         return outer
 
     def _on_grid_allocate(self, _widget, allocation) -> None:
-        # Fixed app-sized cells; only the number of rows/columns changes.
-        shape = (max(1, (allocation.width - 36 + 16) // 104),
-                 max(1, (allocation.height - 36 + 14) // 120))
+        if self._tile_width is None:
+            self._tile_width = self._tile_height = self.ICON_SIZE
+            if self._apps:
+                # Measure under the launcher after its CSS has been installed.
+                tile = self._app_tile(self._apps[0])
+                self._pages.put(tile, 0, 0)
+                tile.show_all()
+                _minimum, natural = tile.get_preferred_size()
+                self._tile_width = max(1, natural.width)
+                self._tile_height = max(1, natural.height)
+                tile.destroy()
+        # Fit as many naturally sized tiles as the available space allows.
+        spacing = self.ICON_SPACING
+        margin = 2 * self.GRID_MARGIN
+        shape = (max(1, (allocation.width - margin + spacing) // (self._tile_width + spacing)),
+                 max(1, (allocation.height - margin + spacing) // (self._tile_height + spacing)))
         size_changed = (allocation.width, allocation.height) != (self._page_width, self._page_height)
         self._page_width = max(1, allocation.width)
         self._page_height = max(1, allocation.height)
@@ -120,13 +139,14 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         self._page_widgets = []
         count = max(1, (len(self._apps) + capacity - 1) // capacity)
         for page_index in range(count):
-            grid = Gtk.Grid(column_spacing=16, row_spacing=14)
+            grid = Gtk.Grid(column_spacing=self.ICON_SPACING, row_spacing=self.ICON_SPACING)
             grid.set_halign(Gtk.Align.CENTER)
             grid.set_valign(Gtk.Align.START)
-            grid.set_border_width(18)
+            grid.set_border_width(self.GRID_MARGIN)
             grid.set_column_homogeneous(True)
             # Reserve the full page width so sparse pages stay aligned.
-            grid.set_size_request(36 + cols * 88 + (cols - 1) * 16, -1)
+            grid.set_size_request(
+                2 * self.GRID_MARGIN + cols * self._tile_width + (cols - 1) * self.ICON_SPACING, -1)
             start = page_index * capacity
             for index, app in enumerate(self._apps[start:start + capacity]):
                 grid.attach(self._app_tile(app), index % cols, index // cols, 1, 1)
@@ -247,7 +267,6 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         button = Gtk.Button()
         button.get_style_context().add_class("application-button")
         button.set_relief(Gtk.ReliefStyle.NONE)
-        button.set_size_request(88, 106)
         button.set_halign(Gtk.Align.CENTER)
         button.set_valign(Gtk.Align.START)
         button.set_tooltip_text(app.get_display_name())
@@ -257,12 +276,13 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         icon = app.get_icon()
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.DIALOG) if icon else \
             Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DIALOG)
-        image.set_pixel_size(72)
+        image.set_pixel_size(self.ICON_SIZE)
         content.pack_start(image, False, False, 0)
         label = Gtk.Label(label=app.get_display_name())
         label.set_justify(Gtk.Justification.CENTER)
-        label.set_max_width_chars(10)
-        label.set_width_chars(10)
+        # Let the icon determine tile width; truncate names within that width.
+        label.set_max_width_chars(1)
+        label.set_width_chars(1)
         label.set_single_line_mode(True)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         content.pack_start(label, False, False, 0)
@@ -415,7 +435,7 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         button.system-status-button { min-width: 20px; min-height: 0; padding: 0; border-width: 0; }
         .clock { min-width: 48px; min-height: 0; padding: 0 6px 0 1px; }
         button.launch-button { min-height: 28px; padding: 1px 16px; }
-        .launcher { padding: 7px; }
+        .launcher { padding: 0; }
         window.application-launcher .launcher,
         window.application-launcher scrolledwindow,
         window.application-launcher viewport,
@@ -427,8 +447,8 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         .application-grid { padding: 8px; }
         .application-grid flowboxchild { padding: 0; }
         window.application-launcher button.application-button {
-            min-width: 80px; min-height: 98px; padding: 3px;
-            border: 1px solid transparent; border-radius: 12px;
+            min-width: 0; min-height: 0; padding: 0;
+            border: none; border-radius: 12px;
             background-color: transparent; background-image: none; box-shadow: none;
         }
         window.application-launcher button.application-button:hover,
