@@ -36,9 +36,9 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
-        # The taskbar's exclusive zone already makes this edge sit immediately
-        # above the bar.  An additional margin would leave a taskbar-sized gap.
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, 0)
+        # Leave the same gap as Control Center above the taskbar and screen edge.
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.LEFT, 8)
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, 8)
         GtkLayerShell.set_exclusive_zone(self, 0)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
         GtkLayerShell.set_namespace(self, "application-launcher")
