@@ -101,6 +101,12 @@ class StatusControls:
         if self.dialog:
             self.dialog.present()
             return
+        self._create_dialog()
+        self.dialog.show_all()
+        self.refresh()
+        self.dialog.present()
+
+    def _create_dialog(self):
         # Match the launcher's plain window: Gtk.Dialog adds theme-owned content
         # and action backgrounds that can cover the rounded window corners.
         self.dialog = Gtk.Window(title='Control Center', transient_for=self.parent,
@@ -136,9 +142,6 @@ class StatusControls:
         if self.data:
             self._build()
             self._sync()
-        self.dialog.show_all()
-        self.refresh()
-        self.dialog.present()
 
     def _key(self, _widget, event):
         if event.keyval == Gdk.KEY_Escape:

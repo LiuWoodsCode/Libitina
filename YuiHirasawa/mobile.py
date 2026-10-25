@@ -16,7 +16,7 @@ from backend import (
     WaylandWindowCollector,
     WindowInfo,
 )
-from control_center import StatusControls
+from mobile_control_center import MobileStatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
 from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu
@@ -336,7 +336,7 @@ class StatusBar(Gtk.Window):
         bar.pack_start(self._clock, False, False, 0)
 
         status_icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        self._status_controls = StatusControls(self, self.STATUS_ICON_SIZE)
+        self._status_controls = MobileStatusControls(self, self.STATUS_ICON_SIZE)
         for kind in ("network", "bt", "audio", "pwr"):
             status_icons.pack_start(self._status_controls.button(kind), False, False, 0)
         bar.pack_end(status_icons, False, False, 0)
