@@ -13,13 +13,13 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Handy", "1")
 from gi.repository import Gio, GLib, Gtk, Handy, Pango
 
-from service_page import PreferencesPage, action_row, group, switch_row
+from service_page import PreferencesPage, action_row, choice_row, group, switch_row
 from display_page import DisplayPage
 from bluetooth_page import BluetoothPage
 from network_pages import CellularPage, NetworkPage, WifiPage
 from system_pages import AccessibilityPage, AudioPage, DateTimePage, PowerPage
 from settings import (
-    load_config, set_software_rendering_apps, set_wallpaper_enabled,
+    load_config, set_shell, set_software_rendering_apps, set_wallpaper_enabled,
     wallpaper_enabled,
 )
 
@@ -235,6 +235,16 @@ class SettingsWindow(Handy.ApplicationWindow):
 
     def _add_appearance_page(self) -> None:
         page = PreferencesPage()
+        shell_group = group(page.body, "Yui mode")
+        self._saved_shell_mode = load_config()["shell"]
+        self._shell_mode_row = choice_row(
+            shell_group, "Mode", [("desktop", "Desktop"), ("mobile", "Mobile")],
+            active=self._saved_shell_mode, changed=self._on_shell_mode_changed,
+        )
+        self._shell_mode_status = action_row(
+            shell_group, "Log out and back in to apply mode changes.",
+            "Mobile mode opens windows maximized without server-side decorations.",
+        )
         self._dark_mode_checkbox = switch_row(group(page.body, "Style"), "Dark appearance", False)
         if self._interface_settings is None:
             self._dark_mode_checkbox.set_sensitive(False)
@@ -246,6 +256,24 @@ class SettingsWindow(Handy.ApplicationWindow):
                 if setting_has_key(self._interface_settings, key):
                     self._interface_settings.connect(f"changed::{key}", self._on_dark_mode_setting_changed)
         self._stack.add_titled(page, "appearance", "Appearance")
+
+    def _on_shell_mode_changed(self, shell: str) -> None:
+        if shell == self._saved_shell_mode:
+            return
+        try:
+            set_shell(shell)
+        except (OSError, ValueError) as exc:
+            self._shell_mode_row.set_selected_index(
+                0 if self._saved_shell_mode == "desktop" else 1
+            )
+            self._shell_mode_status.set_title("Could not save Yui mode.")
+            self._shell_mode_status.set_subtitle(str(exc))
+        else:
+            self._saved_shell_mode = shell
+            self._shell_mode_status.set_title("Saved. Log out and back in to apply.")
+            self._shell_mode_status.set_subtitle(
+                "Mobile mode opens windows maximized without server-side decorations."
+            )
 
     def _add_advanced_page(self) -> None:
         page = make_page()

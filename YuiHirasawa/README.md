@@ -1,5 +1,11 @@
 # Yui display settings
 
+When `shell` is set to `mobile` in `~/.config/yui/config.json`, the YuiHirasawa
+Labwc login session uses a temporary copy of the merged `rc.xml` settings with
+a rule that opens all windows maximized and without server-side decorations.
+The original configuration stays untouched. The copy is removed when Labwc
+exits; changing shell mode takes effect at the next login.
+
 Open **Display** in `Applications/Production/Yui/YuiSettings/main.py` to configure
 monitors using `wlr-randr`. Controls include enabling outputs, resolution and
 refresh rate, custom modes (for example `1920x1080@75Hz`), absolute X/Y position,

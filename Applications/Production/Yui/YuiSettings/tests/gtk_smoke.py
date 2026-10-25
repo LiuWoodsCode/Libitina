@@ -52,11 +52,12 @@ def clock_load(self):
 
 outputs = [dict(name='eDP-1', description='Built-in display', enabled=True, scale=1,
                 position=dict(x=0,y=0), modes=[dict(width=1920,height=1080,refresh=60,current=True)])]
-config = {'software_rendering_apps': []}
+config = {'software_rendering_apps': [], 'shell': 'desktop'}
 patches = [patch.object(display_page.displays, 'query_outputs', lambda: outputs),
     patch.object(display_page.displays, 'CONFIG_PATH', Path(temporary.name) / 'monitors.json'),
     patch.object(display_page.displays, 'STATUS_PATH', Path(temporary.name) / 'monitors-status.json'),
     patch.object(main, 'load_config', lambda: config),
+    patch.object(main, 'set_shell', lambda value: config.update(shell=value)),
     patch.object(main, 'set_software_rendering_apps', lambda values: config.update(software_rendering_apps=values)),
     patch.object(main, 'wallpaper_enabled', lambda: True),
     patch.object(Gio, 'bus_get', lambda *args: None),
@@ -121,6 +122,16 @@ def navigate(name):
 
 
 window = main.SettingsWindow(None)
+assert window._shell_mode_row.get_active_id() == 'desktop'
+window._shell_mode_row.set_selected_index(1)
+assert config['shell'] == 'mobile'
+window._shell_mode_row.set_selected_index(0)
+assert config['shell'] == 'desktop'
+with patch.object(main, 'set_shell', side_effect=OSError('Read-only config')):
+    window._shell_mode_row.set_selected_index(1)
+assert config['shell'] == 'desktop'
+assert window._shell_mode_row.get_active_id() == 'desktop'
+assert window._shell_mode_status.get_title() == 'Could not save Yui mode.'
 window.show_all()
 settle()
 for name in ['wallpaper','appearance','display','wifi','cellular','network','bluetooth','audio','power','datetime','accessibility','advanced','about']:
