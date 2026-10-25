@@ -1299,7 +1299,6 @@ class GSettingsEditorApplication(Gtk.Application):
         dialog.set_copyright(
             "Advanced configuration tool"
         )
-        dialog.set_license_type(Gtk.License.MIT_X11)
         dialog.set_website(
             "https://docs.gtk.org/gio/class.Settings.html"
         )
