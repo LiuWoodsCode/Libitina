@@ -75,7 +75,8 @@ def launch_application(app, on_error, context=None) -> bool:
     """Report spawn/activation errors and abnormal exits during startup.
 
     GIO retains desktop-entry handling (Exec field codes, working directory,
-    terminal commands and D-Bus activation). Only directly spawned children can
+    terminal commands). Entries with Exec run in the shell session environment;
+    activation-only entries still use D-Bus. Only directly spawned children can
     be watched; applications that detach or use D-Bus own their process lifecycle.
     """
     name = app.get_display_name()
@@ -102,16 +103,17 @@ def launch_application(app, on_error, context=None) -> bool:
         GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, exited)
 
     try:
-        context, software = _launch_context(app, context)
+        context, _software = _launch_context(app, context)
         launch_app = app
-        if software and app.get_boolean("DBusActivatable"):
-            # D-Bus activation cannot carry a per-launch environment. Launch
-            # the original Exec directly so this app receives the overrides.
+        if app.get_boolean("DBusActivatable") and (app.get_commandline() or "").strip():
+            # D-Bus services may have a stale or incomplete display environment.
+            # Use Exec just as the foot retry does, inheriting this session
+            # and any per-app rendering overrides.
             entry = _desktop_entry(app)
             entry.set_boolean("Desktop Entry", "DBusActivatable", False)
             launch_app = Gio.DesktopAppInfo.new_from_keyfile(entry)
             if launch_app is None:
-                raise ValueError("Could not prepare this application for software rendering.")
+                raise ValueError("Could not prepare this application for direct launch.")
         context.connect(
             "launch-failed",
             lambda *_: report("The application could not be activated."),
@@ -156,7 +158,8 @@ def application_details(app) -> str:
         details += "\nLaunch environment:\n" + "\n".join(
             f"  {key}={value}" for key, value in SOFTWARE_RENDERING_ENV.items()
         )
-        details += "\nYui launches Exec directly when software rendering is enabled."
+    if app.get_boolean("DBusActivatable") and (app.get_commandline() or "").strip():
+        details += "\nYui launches Exec directly using the shell session environment."
     filename = app.get_filename()
     if filename:
         try:

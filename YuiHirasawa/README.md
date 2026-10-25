@@ -39,6 +39,9 @@ separate process or start through D-Bus cannot have their exit status monitored.
 Choose **Try Again in foot** to rerun the application's command in foot and read
 its output. Foot stays open after the program exits (`--hold`). This retry runs
 the desktop entry's command directly, including for D-Bus activated applications.
+Normal launches also run `Exec` directly when available so apps inherit Yui’s
+current display and session environment instead of the D-Bus service environment.
+Entries without an `Exec` command continue to use D-Bus activation.
 The Debian installer includes foot; existing installations need the `foot` package.
 The checks require PyGObject (`python3-gi` on Debian).
 

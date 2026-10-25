@@ -35,6 +35,7 @@ DBusActivatable=true
         self.app.get_id.return_value = self.filename.name
         self.app.get_filename.return_value = str(self.filename)
         self.app.get_display_name.return_value = "Example"
+        self.app.get_commandline.return_value = "/bin/true"
         self.app.get_boolean.side_effect = lambda key: key == "DBusActivatable"
         self.app.get_supported_types.return_value = ["text/plain"]
         self.app.get_string.return_value = None
@@ -86,8 +87,27 @@ DBusActivatable=true
         before = context.get_environment()
         self.assertTrue(app_launch.launch_application(self.app, self.errors, context))
         self.assertEqual(context.get_environment(), before)
+        self.app.launch_uris_as_manager.assert_not_called()
+        self.assertEqual(self.factory.call_count, 2)
+
+    def test_dbus_app_without_rendering_override_uses_session_exec(self):
+        settings.set_software_rendering_apps([])
+        context = Gio.AppLaunchContext()
+        before = context.get_environment()
+        self.assertTrue(app_launch.launch_application(self.app, self.errors, context))
+        self.assertEqual(context.get_environment(), before)
+        self.app.launch_uris_as_manager.assert_not_called()
+        self.direct.launch_uris_as_manager.assert_called_once()
+        entry = self.factory.call_args.args[0]
+        self.assertFalse(entry.get_boolean("Desktop Entry", "DBusActivatable"))
+        self.errors.assert_not_called()
+
+    def test_activation_only_entry_keeps_dbus_launch(self):
+        settings.set_software_rendering_apps([])
+        self.app.get_commandline.return_value = None
+        self.assertTrue(app_launch.launch_application(self.app, self.errors))
+        self.factory.assert_not_called()
         self.app.launch_uris_as_manager.assert_called_once()
-        self.assertEqual(self.factory.call_count, 1)
 
     def test_retry_uses_the_same_rendering_environment(self):
         context = Gio.AppLaunchContext()
@@ -102,7 +122,7 @@ DBusActivatable=true
         self.factory.return_value = None
         self.assertFalse(app_launch.launch_application(self.app, self.errors))
         self.errors.assert_called_once()
-        self.assertIn("software rendering", self.errors.call_args.args[1])
+        self.assertIn("direct launch", self.errors.call_args.args[1])
 
     def test_direct_spawn_errors_are_reported(self):
         self.direct.launch_uris_as_manager.side_effect = GLib.Error("missing executable")
