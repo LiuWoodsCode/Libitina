@@ -24,7 +24,8 @@ from wallpaper import Wallpaper
 
 
 class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
-    ICON_SIZE = 64
+    SWIPE_LAUNCH_COOLDOWN_US = 3_000_000
+    ICON_SIZE = 72
     ICON_SPACING = 18
     GRID_MARGIN = 18
 
@@ -68,6 +69,8 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         self._page_widgets = []
         self._snap_source = None
         self._page_drag_claimed = False
+        self._page_drag_moved = False
+        self._launch_blocked_until = 0
         # A scrollable strip keeps both neighboring pages visible during a drag.
         self._pages = Gtk.Layout()
         self._page_adjustment = self._pages.get_hadjustment()
@@ -234,11 +237,16 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
     def _on_page_drag_begin(self, _gesture, _x: float, _y: float) -> None:
         self._stop_page_snap()
         self._page_drag_claimed = False
+        self._page_drag_moved = False
         self._drag_start_position = self._page_adjustment.get_value()
         self._drag_start_page = min(len(self._page_dots) - 1,
                                     int(self._drag_start_position / self._page_width + 0.5))
 
     def _on_page_drag_update(self, gesture, dx: float, dy: float) -> None:
+        if max(abs(dx), abs(dy)) >= 10:
+            self._page_drag_moved = True
+            # Block before release too, in case clicked precedes drag-end.
+            self._start_swipe_launch_cooldown()
         if not self._page_drag_claimed and abs(dx) >= 10 and abs(dx) > abs(dy):
             # Claim before release, cancelling any app button's pending click.
             self._page_drag_claimed = True
@@ -249,6 +257,9 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
                 max(0, min(self._drag_start_position - dx, limit)))
 
     def _on_page_drag_end(self, _gesture, dx: float, dy: float) -> None:
+        if self._page_drag_moved or self._page_drag_claimed or max(abs(dx), abs(dy)) >= 10:
+            self._start_swipe_launch_cooldown()
+        self._page_drag_moved = False
         if self._page_drag_claimed:
             target = self._drag_start_page
             if abs(dx) >= max(48, self._page_width * 0.2):
@@ -260,8 +271,14 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         self._page_drag_claimed = False
 
     def _on_page_drag_cancel(self, _gesture, _sequence) -> None:
+        if self._page_drag_moved or self._page_drag_claimed:
+            self._start_swipe_launch_cooldown()
+        self._page_drag_moved = False
         self._page_drag_claimed = False
         self._set_page(self._current_page)
+
+    def _start_swipe_launch_cooldown(self) -> None:
+        self._launch_blocked_until = GLib.get_monotonic_time() + self.SWIPE_LAUNCH_COOLDOWN_US
 
     def _app_tile(self, app: Gio.DesktopAppInfo) -> Gtk.Widget:
         button = Gtk.Button()
@@ -292,6 +309,9 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         return button
 
     def _launch_app(self, _button: Gtk.Button, app: Gio.DesktopAppInfo) -> None:
+        if (self._page_drag_moved or self._page_drag_claimed
+                or GLib.get_monotonic_time() < self._launch_blocked_until):
+            return
         if launch_application(
             app, lambda title, detail: self._show_error(title, detail, app),
             self.get_display().get_app_launch_context()
@@ -382,7 +402,12 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         self._wayland = WaylandWindowCollector()
         self._windows: dict[str, WindowInfo] = {}
         self._buttons: dict[str, Gtk.Button] = {}
+        self._swipe_rows: dict[str, Gtk.Layout] = {}
+        self._swipe_offsets: dict[str, float] = {}
+        self._swipe_animations: dict[str, int] = {}
         self._long_press_gestures: dict[str, Gtk.GestureLongPress] = {}
+        self._close_swipes: dict[str, Gtk.GestureDrag] = {}
+        self._swiping_windows: set[str] = set()
         self._button_signatures: dict[str, tuple[str, str]] = {}
         self._suppress_clicks: set[str] = set()
         self._pending_long_presses: set[str] = set()
@@ -485,8 +510,13 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         windows_by_key = {window.key: window for window in windows}
         old, new = set(self._buttons), set(windows_by_key)
         for key in old - new:
-            self._task_box.remove(self._buttons.pop(key))
+            self._stop_close_swipe_animation(key)
+            self._task_box.remove(self._swipe_rows.pop(key))
+            self._buttons.pop(key)
+            self._swipe_offsets.pop(key, None)
             self._long_press_gestures.pop(key, None)
+            self._close_swipes.pop(key, None)
+            self._swiping_windows.discard(key)
             self._button_signatures.pop(key, None)
             self._suppress_clicks.discard(key)
             self._pending_long_presses.discard(key)
@@ -505,12 +535,29 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
             gesture.connect("end", self._on_long_press_end, key)
             self._buttons[key] = button
             self._long_press_gestures[key] = gesture
-            self._task_box.pack_start(button, False, False, 0)
+            row = Gtk.Layout()
+            row.set_hexpand(True)
+            row.put(button, 0, 0)
+            row.connect("size-allocate", self._on_swipe_row_allocate, key)
+            self._swipe_rows[key] = row
+            # Capture on the stationary row so movement remains relative to
+            # the original touch position while its button follows the finger.
+            swipe = Gtk.GestureDrag.new(row)
+            swipe.set_button(Gdk.BUTTON_PRIMARY)
+            swipe.set_touch_only(False)
+            swipe.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            swipe.connect("drag-update", self._on_close_swipe_update, key)
+            swipe.connect("drag-end", self._on_close_swipe_end, key)
+            swipe.connect("cancel", self._on_close_swipe_cancel, key)
+            self._close_swipes[key] = swipe
+            self._task_box.pack_start(row, False, False, 0)
         self._windows = windows_by_key
         for position, window in enumerate(windows):
             button = self._buttons[window.key]
-            self._task_box.reorder_child(button, position)
+            self._task_box.reorder_child(self._swipe_rows[window.key], position)
             self._update_button(button, window)
+            _minimum, height = button.get_preferred_height()
+            self._swipe_rows[window.key].set_size_request(-1, height)
         self._task_box.show_all()
         has_running = bool(windows)
         if has_running != self._has_running:
@@ -550,7 +597,96 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
         style = button.get_style_context()
         (style.add_class if window.active else style.remove_class)("active")
 
+    def _close_swipe_distance(self, button: Gtk.Button) -> float:
+        return min(120, max(48, button.get_allocated_width() * 0.3))
+
+    def _on_swipe_row_allocate(self, row, allocation, key: str) -> None:
+        button = self._buttons.get(key)
+        if button is not None:
+            button.set_size_request(max(1, allocation.width), -1)
+            self._move_swipe_row(key, self._swipe_offsets.get(key, 0))
+
+    def _move_swipe_row(self, key: str, offset: float) -> None:
+        row = self._swipe_rows.get(key)
+        button = self._buttons.get(key)
+        if row is not None and button is not None:
+            self._swipe_offsets[key] = offset
+            row.move(button, round(offset), 0)
+
+    def _stop_close_swipe_animation(self, key: str) -> None:
+        source = self._swipe_animations.pop(key, None)
+        if source is not None:
+            GLib.source_remove(source)
+
+    def _animate_close_swipe(self, key: str, close: bool = False) -> None:
+        self._stop_close_swipe_animation(key)
+        button = self._buttons.get(key)
+        if button is None:
+            return
+        start = self._swipe_offsets.get(key, 0)
+        target = -button.get_allocated_width() if close else 0
+        started = GLib.get_monotonic_time()
+
+        def tick():
+            if key not in self._buttons:
+                self._swipe_animations.pop(key, None)
+                return GLib.SOURCE_REMOVE
+            progress = min(1, (GLib.get_monotonic_time() - started) / 180_000)
+            self._move_swipe_row(key, start + (target - start) * (1 - (1 - progress) ** 3))
+            if progress < 1:
+                return GLib.SOURCE_CONTINUE
+            self._swipe_animations.pop(key, None)
+            if close:
+                window = self._windows.get(key)
+                if window is not None:
+                    self._wayland.manage_window(window.window_id, "close")
+                # Restore the row if the app keeps its window open (e.g. a
+                # save confirmation or a rejected close request).
+                self._animate_close_swipe(key)
+            return GLib.SOURCE_REMOVE
+
+        self._swipe_animations[key] = GLib.timeout_add(16, tick)
+
+    def _on_close_swipe_update(
+            self, gesture: Gtk.GestureDrag, dx: float, dy: float,
+            key: str) -> None:
+        button = self._buttons.get(key)
+        if button is None:
+            return
+        if key not in self._swiping_windows:
+            if dx > -10 or abs(dx) <= abs(dy):
+                return
+            self._swiping_windows.add(key)
+            self._stop_close_swipe_animation(key)
+            self._suppress_clicks.add(key)
+            self._pending_long_presses.discard(key)
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._long_press_gestures[key].set_state(Gtk.EventSequenceState.DENIED)
+        self._move_swipe_row(key, min(0, dx))
+
+    def _finish_close_swipe(self, key: str) -> bool:
+        claimed = key in self._swiping_windows
+        self._swiping_windows.discard(key)
+        if claimed:
+            # Keep release from activating the window before GTK finishes it.
+            GLib.idle_add(self._clear_suppressed_click, key)
+        return claimed
+
+    def _on_close_swipe_end(
+            self, _gesture: Gtk.GestureDrag, dx: float, dy: float,
+            key: str) -> None:
+        button = self._buttons.get(key)
+        claimed = self._finish_close_swipe(key)
+        if claimed and button is not None:
+            self._animate_close_swipe(key, close=-dx >= self._close_swipe_distance(button))
+
+    def _on_close_swipe_cancel(self, _gesture, _sequence, key: str) -> None:
+        if self._finish_close_swipe(key):
+            self._animate_close_swipe(key)
+
     def _on_clicked(self, _button, key: str) -> None:
+        if key in self._swiping_windows:
+            return
         if key in self._suppress_clicks:
             self._suppress_clicks.discard(key)
             return
@@ -571,7 +707,7 @@ class RunningWindow(Gtk.Window, ApplicationCatalog):
             key: str) -> None:
         window = self._windows.get(key)
         button = self._buttons.get(key)
-        if window is None or button is None:
+        if window is None or button is None or key in self._swiping_windows:
             return
         self._suppress_clicks.add(key)
         self._pending_long_presses.add(key)
