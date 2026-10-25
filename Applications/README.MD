@@ -23,6 +23,8 @@ Treat the folder name like an app ID, so for example if the folder name is "Chat
 Run `python3 Applications/install.py` from the repository root to install or
 update applications for the current user. To install only Yui applications, use
 `python3 Applications/install.py --environment Yui`. The installer bundles
-`YuiHirasawa/displays.py` with YuiSettings so its installed desktop entry works
+`YuiHirasawa/displays.py` and `YuiHirasawa/settings.py` with YuiSettings so its installed desktop entry works
 without the repository on Python's module search path. Rerun the installer after
 updating the shared backend.
+See [YuiSettings/README.md](Production/Yui/YuiSettings/README.md) for its Linux
+service dependencies and available settings.

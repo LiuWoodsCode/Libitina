@@ -11,9 +11,13 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Handy", "1")
-from gi.repository import Gio, GLib, Gtk, Handy
+from gi.repository import Gio, GLib, Gtk, Handy, Pango
 
+from service_page import PreferencesPage, action_row, group, switch_row
 from display_page import DisplayPage
+from bluetooth_page import BluetoothPage
+from network_pages import CellularPage, NetworkPage, WifiPage
+from system_pages import AccessibilityPage, AudioPage, DateTimePage, PowerPage
 from settings import (
     load_config, set_software_rendering_apps, set_wallpaper_enabled,
     wallpaper_enabled,
@@ -95,6 +99,8 @@ def get_os_name() -> str:
     return platform.system() or "Unknown"
 
 
+
+
 def make_page() -> Gtk.Box:
     page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
     page.set_border_width(24)
@@ -104,7 +110,7 @@ def make_page() -> Gtk.Box:
 class SettingsWindow(Handy.ApplicationWindow):
     def __init__(self, application: Gtk.Application):
         super().__init__(application=application, title="Settings")
-        self.set_default_size(760, 460)
+        self.set_default_size(920, 640)
         self.set_size_request(320, 240)
 
         self._interface_settings = interface_settings()
@@ -117,11 +123,23 @@ class SettingsWindow(Handy.ApplicationWindow):
         self._add_wallpaper_page()
         self._add_appearance_page()
         self._stack.add_titled(DisplayPage(), "display", "Display")
+        for name, title, page_class in (
+            ("wifi", "Wi-Fi", WifiPage),
+            ("cellular", "Cellular", CellularPage),
+            ("network", "Networking", NetworkPage),
+            ("bluetooth", "Bluetooth", BluetoothPage),
+            ("audio", "Audio", AudioPage),
+            ("power", "Power & Battery", PowerPage),
+            ("datetime", "Date & Time", DateTimePage),
+            ("accessibility", "Text & Input", AccessibilityPage),
+        ):
+            self._stack.add_titled(page_class(), name, title)
         self._add_advanced_page()
         self._add_about_page()
 
         self._sidebar_list = self._make_sidebar()
         self._content_header = Handy.HeaderBar(title="Wallpaper")
+        self._page_header_widgets = []
         self._content_header.set_show_close_button(True)
         self._back_button = Gtk.Button.new_from_icon_name(
             "go-previous-symbolic", Gtk.IconSize.BUTTON
@@ -138,10 +156,13 @@ class SettingsWindow(Handy.ApplicationWindow):
         sidebar_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_pane.set_size_request(220, -1)
         sidebar_pane.pack_start(sidebar_header, False, False, 0)
-        sidebar_pane.pack_start(self._sidebar_list, True, True, 0)
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.add(self._sidebar_list)
+        sidebar_pane.pack_start(sidebar_scroll, True, True, 0)
 
         content_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        content_pane.set_size_request(360, -1)
+        content_pane.set_size_request(280, -1)
         content_pane.pack_start(self._content_header, False, False, 0)
         content_pane.pack_start(self._stack, True, True, 0)
 
@@ -163,6 +184,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         header_group.add_header_bar(self._content_header)
         self._header_group = header_group
         self.add(self._leaflet)
+        self._on_sidebar_row_selected(self._sidebar_list, self._sidebar_list.get_selected_row())
 
     def _make_sidebar(self) -> Gtk.ListBox:
         sidebar = Gtk.ListBox()
@@ -170,9 +192,17 @@ class SettingsWindow(Handy.ApplicationWindow):
         sidebar.set_activate_on_single_click(True)
         sidebar.get_style_context().add_class("navigation-sidebar")
         pages = (
+            ("wifi", "Wi-Fi", "network-wireless-symbolic"),
+            ("cellular", "Cellular", "network-cellular-symbolic"),
+            ("network", "Networking", "network-wired-symbolic"),
+            ("bluetooth", "Bluetooth", "bluetooth-symbolic"),
+            ("audio", "Audio", "audio-volume-high-symbolic"),
             ("wallpaper", "Wallpaper", "preferences-desktop-wallpaper-symbolic"),
             ("appearance", "Appearance", "preferences-desktop-theme-symbolic"),
             ("display", "Display", "preferences-desktop-display-symbolic"),
+            ("power", "Power & Battery", "battery-symbolic"),
+            ("datetime", "Date & Time", "preferences-system-time-symbolic"),
+            ("accessibility", "Text & Input", "preferences-desktop-accessibility-symbolic"),
             ("advanced", "Advanced", "preferences-system-symbolic"),
             ("about", "About", "help-about-symbolic"),
         )
@@ -198,34 +228,23 @@ class SettingsWindow(Handy.ApplicationWindow):
         return sidebar
 
     def _add_wallpaper_page(self) -> None:
-        page = make_page()
-        checkbox = Gtk.CheckButton(label="Enable wallpaper")
-        checkbox.set_active(wallpaper_enabled())
-        checkbox.connect("toggled", self._on_wallpaper_toggled)
-        page.pack_start(checkbox, False, False, 0)
+        page = PreferencesPage()
+        widget = switch_row(group(page.body), "Wallpaper", wallpaper_enabled())
+        widget.connect("notify::active", self._on_wallpaper_toggled)
         self._stack.add_titled(page, "wallpaper", "Wallpaper")
 
     def _add_appearance_page(self) -> None:
-        page = make_page()
-        self._dark_mode_checkbox = Gtk.CheckButton(label="Dark mode")
+        page = PreferencesPage()
+        self._dark_mode_checkbox = switch_row(group(page.body, "Style"), "Dark appearance", False)
         if self._interface_settings is None:
             self._dark_mode_checkbox.set_sensitive(False)
-            self._dark_mode_checkbox.set_tooltip_text(
-                "Dark mode is not supported by this desktop"
-            )
+            self._dark_mode_checkbox.set_tooltip_text("Dark mode is not supported by this desktop")
         else:
-            self._dark_mode_checkbox.set_active(
-                dark_mode_enabled(self._interface_settings)
-            )
-            self._dark_mode_checkbox.connect(
-                "toggled", self._on_dark_mode_toggled
-            )
+            self._dark_mode_checkbox.set_active(dark_mode_enabled(self._interface_settings))
+            self._dark_mode_checkbox.connect("notify::active", self._on_dark_mode_toggled)
             for key in (COLOR_SCHEME_KEY, GTK_THEME_KEY):
                 if setting_has_key(self._interface_settings, key):
-                    self._interface_settings.connect(
-                        f"changed::{key}", self._on_dark_mode_setting_changed
-                    )
-        page.pack_start(self._dark_mode_checkbox, False, False, 0)
+                    self._interface_settings.connect(f"changed::{key}", self._on_dark_mode_setting_changed)
         self._stack.add_titled(page, "appearance", "Appearance")
 
     def _add_advanced_page(self) -> None:
@@ -374,16 +393,22 @@ class SettingsWindow(Handy.ApplicationWindow):
         self._refresh_window_button_controls()
 
     def _add_about_page(self) -> None:
-        page = make_page()
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        row.pack_start(
-            Gtk.Label(label="Operating System", xalign=0), True, True, 0
-        )
-        value = Gtk.Label(label=get_os_name(), xalign=1)
-        value.set_selectable(True)
-        value.set_line_wrap(True)
-        row.pack_end(value, False, False, 0)
-        page.pack_start(row, False, False, 0)
+        page = PreferencesPage()
+        identity = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12, margin_bottom=12)
+        icon = Gtk.Image.new_from_icon_name("computer-symbolic", Gtk.IconSize.DIALOG)
+        icon.set_pixel_size(64)
+        identity.pack_start(icon, False, False, 0)
+        name = Gtk.Label(label=get_os_name(), wrap=True, justify=Gtk.Justification.CENTER)
+        attrs = Pango.AttrList()
+        attrs.insert(Pango.attr_scale_new(1.4))
+        attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
+        name.set_attributes(attrs)
+        identity.pack_start(name, False, False, 0)
+        page.body.pack_start(identity, False, False, 0)
+        details = group(page.body, "System")
+        for title, text in (("Device name", platform.node()), ("Kernel", platform.release()),
+                            ("Architecture", platform.machine())):
+            action_row(details, title, text)
         self._stack.add_titled(page, "about", "About")
 
     def _on_sidebar_row_selected(
@@ -393,6 +418,16 @@ class SettingsWindow(Handy.ApplicationWindow):
             return
         self._stack.set_visible_child_name(row.page_name)
         self._content_header.set_title(row.page_title)
+        for widget in self._page_header_widgets:
+            self._content_header.remove(widget)
+        page = self._stack.get_visible_child()
+        self._page_header_widgets = list(getattr(page, "header_actions", []))
+        refresh = getattr(page, "refresh_button", None)
+        if refresh:
+            self._page_header_widgets.append(refresh)
+        for widget in self._page_header_widgets:
+            self._content_header.pack_end(widget)
+            widget.show_all()
 
     def _on_sidebar_row_activated(
         self, _sidebar: Gtk.ListBox, _row: Gtk.ListBoxRow
@@ -404,8 +439,12 @@ class SettingsWindow(Handy.ApplicationWindow):
 
     def _on_folded_changed(self, leaflet: Handy.Leaflet, _pspec) -> None:
         self._back_button.set_visible(leaflet.get_folded())
+        # The root sidebar retains window controls on phones; the detail header
+        # reserves its space for Back and page actions. HeaderGroup manages the
+        # session's decoration layout on desktop windows.
+        self._content_header.set_show_close_button(not leaflet.get_folded())
 
-    def _on_dark_mode_toggled(self, checkbox: Gtk.CheckButton) -> None:
+    def _on_dark_mode_toggled(self, checkbox, _pspec=None) -> None:
         if self._interface_settings is None:
             return
 
@@ -441,7 +480,7 @@ class SettingsWindow(Handy.ApplicationWindow):
                 self._on_dark_mode_toggled
             )
 
-    def _on_wallpaper_toggled(self, checkbox: Gtk.CheckButton) -> None:
+    def _on_wallpaper_toggled(self, checkbox, _pspec=None) -> None:
         enabled = checkbox.get_active()
         try:
             set_wallpaper_enabled(enabled)

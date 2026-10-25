@@ -1,4 +1,4 @@
-"""Display controls backed by the Yui session's monitor configuration."""
+"""Monitor rows with on-demand editors and an explicit Apply action."""
 
 from pathlib import Path
 import json
@@ -7,6 +7,7 @@ import threading
 import time
 
 from gi.repository import GLib, Gtk
+from service_page import (PreferencesPage, action_row, choice_row, confirm, field, group, label, make_refresh_button, size_dialog)
 
 # Installed copies bundle the backend; source checkouts share it with the shell.
 if not Path(__file__).with_name("displays.py").is_file():
@@ -16,52 +17,42 @@ import displays
 
 class DisplayPage(Gtk.Box):
     def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.set_border_width(24)
-        self._outputs = []
-        self._profiles = []
-        self._editors = []
-        self._alive = True
-        self._revision = None
-        self._saved_at = 0
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self._outputs, self._profiles = [], []
+        self._alive, self._busy, self._dirty = True, False, False
+        self._revision, self._saved_at = None, 0
         self.connect("destroy", self._destroyed)
-        description = Gtk.Label(
-            label="Configure connected monitors. Save and Apply also restores these settings when Yui starts.",
-            xalign=0, wrap=True)
-        description.set_max_width_chars(48)
-        self.pack_start(description, False, False, 0)
-        self._refresh = Gtk.Button(label="Refresh displays")
-        self._refresh.connect("clicked", self._reload)
-        self.pack_start(self._refresh, False, False, 0)
-        self._current = Gtk.Button(label="Use current display settings")
-        self._current.set_tooltip_text("Read the active layout instead of the saved configuration.")
-        self._current.connect("clicked", lambda *_: self._reload(use_saved=False))
-        self.pack_start(self._current, False, False, 0)
-        self._status = Gtk.Label(xalign=0, wrap=True)
-        self._status.set_max_width_chars(48)
-        self._status.set_selectable(True)
-        self.pack_start(self._status, False, False, 0)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_vexpand(True)
-        self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        scroll.add(self._list)
-        self.pack_start(scroll, True, True, 0)
-        self._save = Gtk.Button(label="Save and Apply")
+        self.refresh_button = self._refresh = make_refresh_button("Refresh displays", self._reload)
+        self._save = Gtk.Button(label="Apply", valign=Gtk.Align.CENTER, sensitive=False)
+        self._save.set_no_show_all(True)
         self._save.connect("clicked", self._save_clicked)
-        self._save.set_sensitive(False)
-        self.pack_start(self._save, False, False, 0)
+        self.header_actions = [self._save]
+        page = PreferencesPage()
+        self._status = label()
+        self._status.set_selectable(True)
+        self._status.set_no_show_all(True)
+        self._status.connect("notify::label", lambda widget, *_: widget.set_visible(bool(widget.get_text())))
+        page.body.pack_start(self._status, False, False, 0)
+        self._list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        page.body.pack_start(self._list, False, False, 0)
+        self.pack_start(page, True, True, 0)
         self._timer = GLib.timeout_add_seconds(2, self._check_status)
-        self._reload()
+        self.connect("map", self._reload)
 
     def _destroyed(self, *_args):
         self._alive = False
         GLib.source_remove(self._timer)
 
     def _reload(self, *_args, use_saved=True):
+        if self._busy or not self._alive:
+            return
+        if self._dirty and not confirm(self, "Discard display changes?", "The changes have not been applied yet."):
+            return
+        self._busy = True
         self._refresh.set_sensitive(False)
-        self._current.set_sensitive(False)
+        self._list.set_sensitive(False)
         self._save.set_sensitive(False)
+        self._save.hide()
         self._revision = None
         self._status.set_text("Reading connected displays…")
 
@@ -72,7 +63,6 @@ class DisplayPage(Gtk.Box):
                 if use_saved and displays.CONFIG_PATH.exists():
                     saved = {profile["name"]: profile for profile in displays.load_profiles()}
                     profiles = [saved.get(profile["name"], profile) for profile in profiles]
-                    # Retain disconnected monitors when saving the current layout.
                     names = {profile["name"] for profile in profiles}
                     profiles += [profile for name, profile in saved.items() if name not in names]
                 GLib.idle_add(self._loaded, outputs, profiles, None)
@@ -84,94 +74,121 @@ class DisplayPage(Gtk.Box):
     def _loaded(self, outputs, profiles, error):
         if not self._alive:
             return False
+        self._busy, self._dirty = False, False
         self._refresh.set_sensitive(True)
-        self._current.set_sensitive(True)
-        for child in self._list.get_children():
-            child.destroy()
-        self._outputs, self._profiles, self._editors = outputs, profiles, []
-        if error:
-            self._status.set_text(error)
-            return False
-        self._status.set_text("" if outputs else "No displays found.")
-        by_name = {profile["name"]: profile for profile in profiles}
-        for output in outputs:
-            self._add_output(output, by_name[output["name"]])
-        self._list.show_all()
-        self._save.set_sensitive(bool(outputs))
+        self._list.set_sensitive(not error)
+        self._outputs, self._profiles = outputs, profiles
+        self._status.set_text(error or "")
+        self._render()
         return False
 
-    def _add_output(self, output, profile):
-        frame = Gtk.Frame(label=output["name"])
-        grid = Gtk.Grid(column_spacing=12, row_spacing=8, margin=12)
-        frame.add(grid)
-        row = 0
+    def _render(self):
+        for child in self._list.get_children():
+            child.destroy()
+        monitors = group(self._list, "Displays")
+        by_name = {profile["name"]: profile for profile in self._profiles}
+        for output in self._outputs:
+            profile = by_name[output["name"]]
+            summary = f"{profile.get('mode') or 'Automatic resolution'} · {profile.get('scale', 1):g}×" if profile["enabled"] else "Disabled"
+            action_row(monitors, output.get("description") or output["name"], summary,
+                       "video-display-symbolic", lambda output=output: self._edit_output(output))
+        if not self._outputs:
+            action_row(monitors, "No displays found", icon="video-display-symbolic")
+        action_row(group(self._list), "Use current layout", icon="view-restore-symbolic",
+                   callback=lambda: self._reload(use_saved=False))
+        self._list.show_all()
 
-        def field(title, widget):
-            nonlocal row
-            label = Gtk.Label(label=title, xalign=0)
-            grid.attach(label, 0, row, 1, 1)
-            widget.set_hexpand(True)
-            grid.attach(widget, 1, row, 1, 1)
-            row += 1
-            return widget
+    def _edit_output(self, output):
+        profile = next(item for item in self._profiles if item["name"] == output["name"])
+        dialog = Gtk.Dialog(title=output.get("description") or output["name"], transient_for=self.get_toplevel(),
+                            modal=True, use_header_bar=1)
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Done", Gtk.ResponseType.OK)
+        size_dialog(dialog, self, 440, 560)
+        page = PreferencesPage()
+        general = group(page.body)
+        enabled = field(general, "Enabled", Gtk.Switch(active=profile["enabled"]))
+        available_modes = [displays.mode_name(item) for item in output.get("modes", [])]
+        saved_mode = profile.get("mode", "")
+        is_custom = profile.get("custom_mode", False) or bool(saved_mode and saved_mode not in available_modes)
+        custom = field(general, "Custom resolution", Gtk.Switch(active=is_custom))
+        presets = Gtk.ComboBoxText()
+        presets.append("", "Automatic")
+        for value in available_modes:
+            presets.append(value, value)
+        presets.set_active_id(saved_mode if saved_mode in available_modes else "")
+        custom_mode = Gtk.Entry(text=saved_mode, placeholder_text="1920x1080@60Hz", width_chars=12)
+        custom_mode.set_tooltip_text("Width x height, optionally @refreshHz, for example 1600x900@75Hz.")
+        mode = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, homogeneous=False)
+        mode.add_named(presets, "preset")
+        mode.add_named(custom_mode, "custom")
+        field(general, "Resolution", mode)
 
-        description = Gtk.Label(label=output.get("description") or output["name"],
-                                xalign=0, wrap=True)
-        description.set_max_width_chars(32)
-        grid.attach(description, 0, row, 2, 1)
-        row += 1
-        enabled = field("Enabled", Gtk.Switch(active=profile["enabled"]))
-        enabled.set_halign(Gtk.Align.START)
-        mode = Gtk.ComboBoxText.new_with_entry()
-        mode.get_child().set_width_chars(12)
-        mode.append_text("")
-        for item in output.get("modes", []):
-            mode.append_text(displays.mode_name(item))
-        mode.get_child().set_text(profile.get("mode", ""))
-        mode.set_tooltip_text("Width x height, optionally @refreshHz. Leave empty to use the compositor's default.")
-        field("Resolution", mode)
-        custom = field("Custom mode", Gtk.CheckButton())
-        custom.set_active(profile.get("custom_mode", False))
-        custom.set_tooltip_text("Enable to use an unlisted resolution or refresh rate.")
-        scale = field("Scale", Gtk.Entry(text=str(profile.get("scale", 1))))
-        scale.set_width_chars(8)
-        transform = Gtk.ComboBoxText()
-        for value in displays.TRANSFORMS:
-            transform.append(value, value)
-        transform.set_active_id(profile.get("transform", "normal"))
-        field("Transform", transform)
-        x = field("Position X", Gtk.Entry(text=str(profile["position"]["x"])))
-        y = field("Position Y", Gtk.Entry(text=str(profile["position"]["y"])))
-        for entry in (x, y):
-            entry.set_width_chars(8)
-        adaptive = field("Adaptive sync", Gtk.CheckButton())
-        adaptive.set_active(profile.get("adaptive_sync") is True)
+        def custom_changed(widget, *_):
+            active = widget.get_active()
+            mode.set_visible_child_name("custom" if active else "preset")
+            if active and dialog.get_mapped():
+                custom_mode.grab_focus()
+
+        custom.connect("notify::active", custom_changed)
+        scale = Gtk.SpinButton.new_with_range(0.25, max(8, profile.get("scale", 1)), 0.25)
+        scale.set_digits(2)
+        scale.set_value(profile.get("scale", 1))
+        field(general, "Scale", scale)
+        transform = choice_row(general, "Orientation", [(value, value.replace("flipped", "Flipped").replace("normal", "Normal"))
+                                                        for value in displays.TRANSFORMS], profile.get("transform", "normal"))
+        position = group(page.body, "Arrangement")
+        coordinates = []
+        for axis in ("x", "y"):
+            entry = Gtk.Entry(text=str(profile["position"][axis]))
+            field(position, "Position " + axis.upper(), entry)
+            coordinates.append(entry)
+        advanced = group(page.body, "Advanced")
+        adaptive = field(advanced, "Adaptive sync", Gtk.Switch(active=profile.get("adaptive_sync") is True))
         adaptive.set_sensitive(output.get("adaptive_sync") is not None)
-        if output.get("adaptive_sync") is None:
-            adaptive.set_tooltip_text("Not supported by this compositor.")
-        self._editors.append((profile, enabled, mode, custom, scale, transform, x, y, adaptive))
-        self._list.pack_start(frame, False, False, 0)
+        error = label()
+        page.body.pack_start(error, False, False, 0)
+        dialog.get_content_area().pack_start(page, True, True, 0)
+
+        def response(widget, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                try:
+                    edited = {"name": profile["name"], "enabled": enabled.get_active(),
+                              "mode": custom_mode.get_text().strip() if custom.get_active() else presets.get_active_id() or "",
+                              "custom_mode": custom.get_active(),
+                              "scale": scale.get_value(), "transform": transform.get_active_id(),
+                              "position": {"x": int(coordinates[0].get_text()), "y": int(coordinates[1].get_text())},
+                              "adaptive_sync": adaptive.get_active() if adaptive.get_sensitive() else None}
+                    profiles = [edited if item["name"] == edited["name"] else item for item in self._profiles]
+                    displays.validate(profiles)
+                    displays.build_arguments(profiles, self._outputs)
+                except (ValueError, TypeError) as exc:
+                    error.set_text(str(exc))
+                    return
+                self._profiles, self._dirty = profiles, True
+                self._save.set_sensitive(True)
+                self._save.show()
+                self._status.set_text("Changes not applied")
+                self._render()
+            widget.destroy()
+
+        dialog.connect("response", response)
+        dialog.show_all()
+        # Gtk.Stack only selects visible children; restore the saved editor after
+        # show_all() has made both the entry and the preset selector available.
+        mode.set_visible_child_name("custom" if custom.get_active() else "preset")
+        return dialog
 
     def _save_clicked(self, *_args):
         try:
-            edited = {}
-            for profile, enabled, mode, custom, scale, transform, x, y, adaptive in self._editors:
-                edited[profile["name"]] = {
-                    "name": profile["name"], "enabled": enabled.get_active(),
-                    "mode": mode.get_child().get_text().strip(),
-                    "custom_mode": custom.get_active(),
-                    "scale": float(scale.get_text()), "transform": transform.get_active_id(),
-                    "position": {"x": int(x.get_text()), "y": int(y.get_text())},
-                    "adaptive_sync": adaptive.get_active() if adaptive.get_sensitive() else None,
-                }
-            profiles = [edited.get(profile["name"], profile) for profile in self._profiles]
-            displays.validate(profiles)
-            displays.build_arguments(profiles, self._outputs)
-            displays.save_profiles(profiles)
-            self._profiles = profiles
+            displays.validate(self._profiles)
+            displays.build_arguments(self._profiles, self._outputs)
+            displays.save_profiles(self._profiles)
             self._revision = displays.CONFIG_PATH.stat().st_mtime_ns
             self._saved_at = time.monotonic()
-            self._status.set_text("Saved. Waiting for the Yui launcher to apply the settings…")
+            self._dirty = False
+            self._save.set_sensitive(False)
+            self._save.hide()
+            self._status.set_text("Saved. Applying display settings…")
         except (OSError, ValueError) as exc:
             self._status.set_text(str(exc))
 
