@@ -5,7 +5,7 @@ import threading
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 import status_backend as backend
-from shell_widgets import _prepare_launcher_dialog, round_window_corners
+from shell_widgets import _prepare_launcher_dialog, round_window_corners, slide_panel_from_right
 
 
 class StatusControls:
@@ -99,6 +99,7 @@ class StatusControls:
 
     def show(self, *_):
         if self.dialog:
+            self.dialog.show_all()
             self.dialog.present()
             return
         self._create_dialog()
@@ -139,6 +140,8 @@ class StatusControls:
         contents.pack_end(close, False, False, 0)
         self.dialog.add(contents)
         self._built = False
+        if self.bottom_right:
+            slide_panel_from_right(self.dialog)
         if self.data:
             self._build()
             self._sync()

@@ -34,6 +34,113 @@ def round_window_corners(window: Gtk.Window, radius: int = 12) -> None:
     window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
+def animate_window_from_edge(window: Gtk.Window, edge, duration_ms: int = 240) -> None:
+    """Reveal panel contents without moving the Wayland surface offscreen."""
+    content = window.get_child()
+    window.remove(content)
+    revealer = Gtk.Revealer()
+    transition = (Gtk.RevealerTransitionType.SLIDE_LEFT
+                  if edge == GtkLayerShell.Edge.RIGHT
+                  else Gtk.RevealerTransitionType.SLIDE_UP)
+    revealer.set_transition_type(transition)
+    revealer.set_transition_duration(duration_ms)
+    revealer.add(content)
+    window.add(revealer)
+    pending = None
+
+    def stop(widget, *_args):
+        nonlocal pending
+        if pending is not None:
+            GLib.source_remove(pending)
+            pending = None
+        revealer.set_reveal_child(False)
+
+    def mapped(widget):
+        nonlocal pending
+        stop(widget)
+
+        def reveal():
+            nonlocal pending
+            pending = None
+            if widget.get_mapped():
+                revealer.set_reveal_child(True)
+            return GLib.SOURCE_REMOVE
+
+        # Start after the panel has mapped at its final, visible position.
+        pending = GLib.idle_add(reveal)
+
+    window.connect("map", mapped)
+    window.connect("unmap", stop)
+    window.connect("destroy", stop)
+
+
+def slide_panel_from_right(window: Gtk.Window, duration_ms: int = 240) -> Gtk.Stack:
+    """Slide a normally allocated panel inside a stable layer surface.
+
+    GtkStack moves its internal GdkWindow on the frame clock, without changing
+    the panel's preferred size on every frame like a horizontal GtkRevealer.
+    """
+    content = window.get_child()
+    window.remove(content)
+    # Move the rounded background with the controls, leaving the rest of the
+    # surface transparent. Keep the original padding on the panel itself.
+    window.get_style_context().remove_class("rounded-shell-window")
+    round_window_corners(content)
+    window.get_style_context().add_class("sliding-shell-surface")
+    provider = Gtk.CssProvider()
+    provider.load_from_data(b"""
+        window.sliding-shell-surface {
+            background-color: transparent; background-image: none;
+            padding: 0; border: none; box-shadow: none;
+        }
+        stack.shell-slide-stack {
+            background-color: transparent; background-image: none;
+        }
+    """)
+    window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    stack = Gtk.Stack()
+    stack.get_style_context().add_class("shell-slide-stack")
+    stack.set_homogeneous(True)
+    stack.set_interpolate_size(False)
+    stack.set_transition_duration(duration_ms)
+    blank = Gtk.Box()
+    blank.show()
+    content.show()
+    stack.add_named(blank, "closed")
+    stack.add_named(content, "open")
+    stack.set_visible_child_name("closed")
+    window.add(stack)
+    pending = None
+
+    def stop(_widget, *_args):
+        nonlocal pending
+        if pending is not None:
+            GLib.source_remove(pending)
+            pending = None
+        # Reset immediately so hide/reopen never animates the reset itself.
+        stack.set_transition_type(Gtk.StackTransitionType.NONE)
+        stack.set_visible_child_name("closed")
+
+    def mapped(widget):
+        nonlocal pending
+        stop(widget)
+
+        def reveal():
+            nonlocal pending
+            pending = None
+            if widget.get_mapped():
+                stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT)
+                stack.set_visible_child_name("open")
+            return GLib.SOURCE_REMOVE
+
+        pending = GLib.idle_add(reveal)
+
+    window.connect("map", mapped)
+    window.connect("unmap", stop)
+    window.connect("destroy", stop)
+    return stack
+
+
 def attach_application_menu(button: Gtk.Button, parent: Gtk.Window, app, on_open) -> None:
     """Offer the same Open and Details actions in either launcher layout."""
     menu = Gtk.Menu()

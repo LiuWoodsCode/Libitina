@@ -19,7 +19,7 @@ from backend import (
 from control_center import StatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
-from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu, round_window_corners
+from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu, round_window_corners, animate_window_from_edge
 
 
 class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
@@ -46,6 +46,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
 
         self.set_size_request(self.WIDTH, self.HEIGHT)
         self.add(self._build_content())
+        animate_window_from_edge(self, GtkLayerShell.Edge.BOTTOM)
 
     def _build_content(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
