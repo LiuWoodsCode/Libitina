@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=DeletescapeUi
+Comment=Deletescape UI for GTK 3
+
+[X-GNOME-Metatheme]
+GtkTheme=DeletescapeUi

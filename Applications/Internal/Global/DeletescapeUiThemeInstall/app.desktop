@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Deletescape UI Theme Installer
+Comment=Install light and dark Deletescape UI themes for GTK3
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;DesktopSettings;Utility;
+X-Purism-FormFactor=Workstation;Mobile;
