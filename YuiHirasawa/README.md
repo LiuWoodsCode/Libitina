@@ -1,5 +1,36 @@
 # Yui display settings
 
+Install Yui from a permanent checkout (the registered session points into this
+folder). Run the installer as your normal login user; it uses `doas` or `sudo`
+for system writes. Running as root is also supported, with `SUDO_USER` or
+`DOAS_USER` selecting the user for optional autostart setup.
+
+- Debian: `./install-debian.sh`
+- postmarketOS: `./install-postmarketos.sh`
+- Other Linux distributions, with dependencies installed manually:
+  `./install-generic.sh`
+
+All three register **YuiHirasawa** as an additional Wayland login session without
+replacing Labwc's existing session. Add `--force-legacy` to also manage a launcher
+block in the user's Labwc autostart. Repeated runs replace that block and preserve
+other commands and file permissions. `XDG_CONFIG_HOME` is honored when absolute.
+
+The generic installer installs no packages and requires Bash, `/usr/bin/python3`,
+and standard Unix tools. Supply Labwc, Python bindings for GObject/GTK 3, Cairo,
+D-Bus and dbus-next, PyWayland, GTK Layer Shell and libhandy typelibs, GStreamer
+with base/good plugins, PAM, foot, wlr-randr, brightnessctl, NetworkManager, BlueZ,
+UPower, PipeWire, and WirePlumber yourself. Install squeekboard to use the OSK.
+
+The postmarketOS installer uses `apk add --no-cache` with the configured
+repositories and includes squeekboard. Package availability depends on your
+release and architecture; enable the appropriate official repositories before
+running it. Alpine names PyWayland `py3-wayland`:
+[Alpine package reference](https://pkgs.alpinelinux.org/package/v3.24/community/aarch64/py3-wayland).
+It leaves service configuration to your existing postmarketOS setup. Ensure a
+login manager supporting `/usr/share/wayland-sessions`, a session D-Bus,
+`XDG_RUNTIME_DIR`, and the desired hardware/audio services are configured.
+On systems without systemd-journald, Yui logs to its inherited stdout/stderr.
+
 The desktop taskbar and mobile status bar refresh their network, Bluetooth,
 volume, and battery icons every three seconds. Icons show Wi-Fi signal strength
 or wired/disconnected state, audio level/mute, and battery level/charging.
