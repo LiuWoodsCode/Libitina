@@ -11,6 +11,8 @@ import subprocess
 import sys
 import time
 
+from settings import load_config
+
 ROOT = Path(__file__).resolve().parent
 RESTART_DELAY = 1.0
 
@@ -108,8 +110,11 @@ def main():
         from labwc_session import main as run_session
         return run_session()
     if args.worker:
-        return supervise({name: [sys.executable, str(ROOT / name)]
-                          for name in ("notification.py", "main.py", "displays.py")})
+        commands = {name: [sys.executable, str(ROOT / name)]
+                    for name in ("notification.py", "main.py", "displays.py")}
+        if load_config()["squeekboard_enabled"]:
+            commands["squeekboard"] = ["squeekboard"]
+        return supervise(commands)
 
     # Hold the lock in the supervisor so a restarted worker cannot race autostart.
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/yui-{os.getuid()}")

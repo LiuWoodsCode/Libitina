@@ -11,6 +11,20 @@ import launcher
 
 
 class JournalTests(unittest.TestCase):
+    def test_worker_starts_keyboard_only_when_enabled(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), \
+                    patch.object(sys, "argv", ["launcher.py", "--worker"]), \
+                    patch.object(launcher, "connect_journal"), \
+                    patch.object(launcher, "load_config", return_value={"squeekboard_enabled": enabled}), \
+                    patch.object(launcher, "supervise", return_value=0) as supervise:
+                self.assertEqual(launcher.main(), 0)
+                commands = supervise.call_args.args[0]
+                self.assertEqual("squeekboard" in commands, enabled)
+                if enabled:
+                    self.assertEqual(commands["squeekboard"], ["squeekboard"])
+                self.assertIn("main.py", commands)
+
     def test_wraps_session_and_worker_without_extra_supervisor(self):
         for arguments in ([], ["--session"], ["--worker"]):
             with self.subTest(arguments=arguments), patch.dict(os.environ, {}, clear=True), \

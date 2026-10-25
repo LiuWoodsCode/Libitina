@@ -105,3 +105,18 @@ is inherited across worker restarts. If `systemd-cat` or the journal socket is
 unavailable, output stays on the original stdout/stderr. Restart the session to
 apply this change. Programs that redirect their own output or use D-Bus activation
 manage their logs separately.
+
+The lock screen accepts your current Unix account password through PAM, including
+letters, digits, punctuation, and Unicode. Type in the masked Password field and
+press Enter or **Unlock**. Tap **On-screen keyboard** to request squeekboard via
+its session D-Bus interface; the password field remains focused for typing.
+
+To start and supervise squeekboard with the session, set
+`"squeekboard_enabled": true` in `~/.config/yui/config.json` and restart the
+session. This boolean defaults to `false`. Install the `squeekboard` package
+first. The compositor must support layer-shell and virtual-keyboard input;
+input-method support enables automatic keyboard display on focused text fields.
+The keyboard uses its own reserved screen area alongside the lock screen.
+
+The locker remains a layer-shell prototype, not a compositor-enforced session
+lock; these changes do not add the Wayland session-lock protocol.

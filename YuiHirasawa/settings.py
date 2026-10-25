@@ -12,6 +12,7 @@ from typing import Any, Mapping
 CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
     "wallpaper": "zohran", "wallpaper_enabled": True, "shell": "desktop", "software_rendering_apps": [],
+    "squeekboard_enabled": False,
 }
 WALLPAPERS = {"zohran": "zohran.png", "shibuya": "shibuya.jpg"}
 
@@ -83,6 +84,8 @@ def load_config() -> dict[str, Any]:
         if isinstance(value, bool)
         else DEFAULT_CONFIG["wallpaper_enabled"],
         "shell": shell if shell in SHELL_OPTIONS else DEFAULT_CONFIG["shell"],
+        "squeekboard_enabled": data.get("squeekboard_enabled", False)
+        if isinstance(data.get("squeekboard_enabled", False), bool) else False,
         "software_rendering_apps": app_ids,
     }
 
@@ -94,6 +97,9 @@ def save_config(config: Mapping[str, Any]) -> None:
     )
     if not isinstance(wallpaper_enabled_value, bool):
         raise ValueError("wallpaper_enabled must be a boolean")
+    squeekboard_enabled = config.get("squeekboard_enabled", False)
+    if not isinstance(squeekboard_enabled, bool):
+        raise ValueError("squeekboard_enabled must be a boolean")
     wallpaper = validate_wallpaper(config.get("wallpaper", "zohran"))
     shell = config.get("shell", DEFAULT_CONFIG["shell"])
     if shell not in SHELL_OPTIONS:
@@ -113,7 +119,8 @@ def save_config(config: Mapping[str, Any]) -> None:
         ) as temporary:
             json.dump(
                 {**config, "wallpaper": wallpaper, "wallpaper_enabled": wallpaper_enabled_value,
-                 "shell": shell, "software_rendering_apps": app_ids},
+                 "shell": shell, "software_rendering_apps": app_ids,
+                 "squeekboard_enabled": squeekboard_enabled},
                 temporary,
                 indent=2,
             )

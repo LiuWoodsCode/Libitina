@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A small, touch-friendly Wayland lock screen for the Yui shell.
-The passcode is checked against the current Unix user's password through PAM.
-No password or PIN is stored by this program.  The PAM service defaults to
+The password is checked against the current Unix user's password through PAM.
+No password is stored by this program.  The PAM service defaults to
 ``login`` and can be overridden with the YUI_PAM_SERVICE environment variable.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
+from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell
 PAM_SUCCESS = 0
 PAM_SYSTEM_ERR = 4
 PAM_BUF_ERR = 5
@@ -75,10 +75,10 @@ class PamAuthenticator:
         self._libc.strdup.restype = ctypes.c_void_p
         self._libc.free.argtypes = [ctypes.c_void_p]
         self._libc.free.restype = None
-    def authenticate(self, passcode: str) -> AuthenticationResult:
-        if not passcode or not passcode.isascii() or not passcode.isdecimal():
-            return AuthenticationResult(False, "Enter a numerical passcode")
-        secret = bytearray(passcode, "utf-8")
+    def authenticate(self, password: str) -> AuthenticationResult:
+        if not password or "\0" in password:
+            return AuthenticationResult(False, "Enter a password")
+        secret = bytearray(password, "utf-8")
         handle = ctypes.c_void_p()
         callback = self._make_conversation(secret)
         conversation = PamConversation(callback, None)
@@ -94,7 +94,7 @@ class PamAuthenticator:
                 return AuthenticationResult(False, self._error(handle, status))
             status = self._pam.pam_authenticate(handle, 0)
             if status != PAM_SUCCESS:
-                return AuthenticationResult(False, "Incorrect passcode")
+                return AuthenticationResult(False, "Incorrect password")
             status = self._pam.pam_acct_mgmt(handle, 0)
             if status != PAM_SUCCESS:
                 return AuthenticationResult(False, self._error(handle, status))
@@ -138,7 +138,7 @@ class PamAuthenticator:
         text = self._pam.pam_strerror(handle, status)
         return text.decode("utf-8", errors="replace") if text else "PAM error"
 class LockScreen(Gtk.Window):
-    MAX_PASSCODE_LENGTH = 32
+    MAX_PASSWORD_LENGTH = 0
     def __init__(self, authenticator: PamAuthenticator) -> None:
         super().__init__(title="Yui lock screen prototype")
         self._authenticator = authenticator
@@ -147,7 +147,7 @@ class LockScreen(Gtk.Window):
         self.set_keep_above(True)
         self.connect("delete-event", lambda *_args: True)
         GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
         for edge in (
             GtkLayerShell.Edge.TOP,
             GtkLayerShell.Edge.RIGHT,
@@ -157,6 +157,8 @@ class LockScreen(Gtk.Window):
             GtkLayerShell.set_anchor(self, edge, True)
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
         GtkLayerShell.set_namespace(self, "yui-locker")
+        # Respect the keyboard's exclusive zone so it remains visible and usable.
+        GtkLayerShell.set_exclusive_zone(self, 0)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_halign(Gtk.Align.CENTER)
         box.set_valign(Gtk.Align.CENTER)
@@ -169,27 +171,20 @@ class LockScreen(Gtk.Window):
         self._date_label = Gtk.Label()
         box.pack_start(self._clock_label, False, False, 0)
         box.pack_start(self._date_label, False, False, 0)
-        box.pack_start(Gtk.Label(label="Enter passcode"), False, False, 8)
+        box.pack_start(Gtk.Label(label="Enter password"), False, False, 8)
         self._entry = Gtk.Entry()
         self._entry.set_visibility(False)
-        self._entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
-        self._entry.set_max_length(self.MAX_PASSCODE_LENGTH)
-        self._entry.set_placeholder_text("PIN")
-        self._entry.connect("insert-text", self._filter_inserted_text)
+        self._entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        self._entry.set_max_length(self.MAX_PASSWORD_LENGTH)
+        self._entry.set_placeholder_text("Password")
+        self._entry.set_input_hints(Gtk.InputHints.NO_SPELLCHECK | Gtk.InputHints.NO_EMOJI)
         self._entry.connect("changed", self._on_entry_changed)
         self._entry.connect("activate", self._submit)
         box.pack_start(self._entry, False, False, 0)
-        keypad = Gtk.Grid()
-        keypad.set_row_spacing(4)
-        keypad.set_column_spacing(4)
-        box.pack_start(keypad, False, False, 0)
-        for index, digit in enumerate("123456789"):
-            keypad.attach(self._number_button(digit), index % 3, index // 3, 1, 1)
-        keypad.attach(Gtk.Label(), 0, 3, 1, 1)
-        keypad.attach(self._number_button("0"), 1, 3, 1, 1)
-        delete = Gtk.Button(label="Delete")
-        delete.connect("clicked", self._delete_digit)
-        keypad.attach(delete, 2, 3, 1, 1)
+        keyboard = Gtk.Button(label="On-screen keyboard")
+        keyboard.set_can_focus(False)
+        keyboard.connect("clicked", self._show_keyboard)
+        box.pack_start(keyboard, False, False, 0)
         self._submit_button = Gtk.Button(label="Unlock")
         self._submit_button.set_sensitive(False)
         self._submit_button.connect("clicked", self._submit)
@@ -198,32 +193,27 @@ class LockScreen(Gtk.Window):
         box.pack_start(self._status, False, False, 0)
         self._update_clock()
         GLib.timeout_add_seconds(1, self._update_clock)
-    def _number_button(self, digit: str) -> Gtk.Button:
-        button = Gtk.Button(label=digit)
-        button.connect("clicked", self._append_digit, digit)
-        return button
-    def _append_digit(self, _button: Gtk.Button, digit: str) -> None:
-        if self._authenticating:
-            return
-        text = self._entry.get_text()
-        if len(text) < self.MAX_PASSCODE_LENGTH:
-            self._entry.set_text(text + digit)
-            self._entry.set_position(-1)
-    def _delete_digit(self, _button: Gtk.Button) -> None:
-        if not self._authenticating:
-            self._entry.set_text(self._entry.get_text()[:-1])
-    def _filter_inserted_text(
-        self, entry: Gtk.Entry, text: str, _length: int, position: object
-    ) -> None:
-        filtered = "".join(character for character in text if character in "0123456789")
-        if filtered == text:
-            return
-        entry.stop_emission_by_name("insert-text")
-        if filtered:
-            current = entry.get_text()
-            cursor = entry.get_position()
-            entry.set_text(current[:cursor] + filtered + current[cursor:])
-            entry.set_position(cursor + len(filtered))
+    def _show_keyboard(self, _button: Gtk.Button) -> None:
+        self._entry.grab_focus()
+        Gio.bus_get(Gio.BusType.SESSION, None, self._keyboard_bus_ready)
+
+    def _keyboard_bus_ready(self, _source, result) -> None:
+        try:
+            bus = Gio.bus_get_finish(result)
+            bus.call(
+                "sm.puri.OSK0", "/sm/puri/OSK0", "sm.puri.OSK0", "SetVisible",
+                GLib.Variant("(b)", (True,)), None, Gio.DBusCallFlags.NONE,
+                3000, None, self._keyboard_shown,
+            )
+        except GLib.Error:
+            self._status.set_text("On-screen keyboard unavailable. Start squeekboard first.")
+
+    def _keyboard_shown(self, bus, result) -> None:
+        try:
+            bus.call_finish(result)
+        except GLib.Error:
+            self._status.set_text("On-screen keyboard unavailable. Start squeekboard first.")
+
     def _on_entry_changed(self, entry: Gtk.Entry) -> None:
         if not self._authenticating:
             self._status.set_text("")
@@ -233,8 +223,8 @@ class LockScreen(Gtk.Window):
     def _submit(self, _widget: Gtk.Widget) -> None:
         if self._authenticating:
             return
-        passcode = self._entry.get_text()
-        if not passcode:
+        password = self._entry.get_text()
+        if not password:
             return
         self._authenticating = True
         self._entry.set_sensitive(False)
@@ -242,13 +232,13 @@ class LockScreen(Gtk.Window):
         self._status.set_text("Checking...")
         threading.Thread(
             target=self._authenticate_worker,
-            args=(passcode,),
+            args=(password,),
             name="YuiPamAuthentication",
             daemon=True,
         ).start()
-    def _authenticate_worker(self, passcode: str) -> None:
+    def _authenticate_worker(self, password: str) -> None:
         try:
-            result = self._authenticator.authenticate(passcode)
+            result = self._authenticator.authenticate(password)
         except Exception as error:
             result = AuthenticationResult(False, f"Authentication error: {error}")
         GLib.idle_add(self._authentication_finished, result)
@@ -277,6 +267,7 @@ def main() -> int:
         return 1
     locker = LockScreen(authenticator)
     locker.show_all()
+    locker._entry.grab_focus()
     Gtk.main()
     return 0
 if __name__ == "__main__":

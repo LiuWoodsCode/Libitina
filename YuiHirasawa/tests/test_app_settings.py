@@ -20,6 +20,22 @@ class AppSettingsTests(unittest.TestCase):
         config_patch.start()
         self.addCleanup(config_patch.stop)
 
+    def test_squeekboard_default_validation_and_round_trip(self):
+        self.assertFalse(settings.load_config()["squeekboard_enabled"])
+        config = settings.load_config()
+        config["squeekboard_enabled"] = True
+        settings.save_config(config)
+        self.assertTrue(settings.load_config()["squeekboard_enabled"])
+        saved = self.path.read_bytes()
+        for invalid in ("true", 1, None, []):
+            config["squeekboard_enabled"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                settings.save_config(config)
+            self.assertEqual(self.path.read_bytes(), saved)
+            self.path.write_text(json.dumps(config))
+            self.assertFalse(settings.load_config()["squeekboard_enabled"])
+            self.path.write_bytes(saved)
+
     def test_defaults_create_empty_list(self):
         config = settings.load_config()
         self.assertEqual(config["software_rendering_apps"], [])
