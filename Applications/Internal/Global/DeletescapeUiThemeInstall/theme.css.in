@@ -9,21 +9,19 @@
   -GtkScrolledWindow-scrollbar-spacing: 0;
   outline-style: none;
 }
-.background { background-color: @bg; color: @fg; font-size: 14px; }
+.background { background-color: @bg; color: @fg; }
 label { background-color: transparent; }
 label:disabled, .dim-label { color: @muted; }
-.title { font-size: 22px; font-weight: 600; }
-.subtitle { color: @muted; font-size: 13px; }
-.heading { font-size: 18px; font-weight: 600; }
-.dsui-section-title { font-size: 16px; font-weight: 600; }
+.title { font-weight: 600; }
+.subtitle { color: @muted; }
+.heading { font-weight: 600; }
+.dsui-section-title { font-weight: 600; }
 .monospace { font-family: monospace; }
 window:backdrop { color: @fg; }
 headerbar, .titlebar {
   background-color: @bg; color: @fg; padding: 12px 16px;
   min-height: 24px; border-bottom: 1px solid @divider;
 }
-headerbar .title { font-size: 18px; }
-headerbar .subtitle { font-size: 12px; }
 window decoration { border: 1px solid @divider; border-radius: 4px; box-shadow: 0 4px 16px alpha(black, 0.18); }
 window.maximized decoration, window.fullscreen decoration { border-radius: 0; border: none; box-shadow: none; }
 frame > border, .frame { border: 1px solid @divider; border-radius: 4px; }
@@ -32,12 +30,11 @@ separator { background-color: @divider; min-width: 1px; min-height: 1px; }
 button {
   background-color: @panel2; color: @fg; border: 1px solid @divider;
   border-radius: 2px; padding: 6px 12px; min-height: 24px; min-width: 16px;
-  font-size: 13px;
 }
 button:hover { border-color: @muted; }
 button:active, button:checked { border-color: @accent; background-color: @panel; }
 button:focus { border-color: @accent; }
-button.suggested-action { background-color: @accent; color: @fg; font-size: 14px; }
+button.suggested-action { background-color: @accent; color: @fg; }
 button.suggested-action:hover { border-color: @fg; }
 button.suggested-action:active { background-color: @panel; }
 button.destructive-action { color: @error_color; }
@@ -55,7 +52,7 @@ button.titlebutton:hover { background-color: @panel2; border-color: @divider; }
 entry, spinbutton:not(.vertical), combobox > box > button {
   background-color: transparent; color: @fg; caret-color: @fg;
   border: 1px solid @muted; border-radius: 2px;
-  padding: 6px 10px; min-height: 22px; font-size: 14px;
+  padding: 6px 10px; min-height: 22px;
 }
 entry:hover, spinbutton:hover, combobox > box > button:hover { border-color: @fg; }
 entry:focus, spinbutton:focus-within, spinbutton:focus, combobox > box > button:focus { border-color: @accent; }
@@ -92,15 +89,20 @@ check:disabled, radio:disabled { opacity: 0.45; }
 checkbutton:focus check, radiobutton:focus radio { box-shadow: 0 0 0 2px alpha(@accent, 0.3); }
 switch {
   min-width: 34px; min-height: 18px; padding: 0;
-  border: 1px solid @muted; border-radius: 10px; background-color: @panel2;
-  color: transparent; font-size: 0;
+  border: 1px solid @muted; border-radius: 9999px; background-color: @panel2;
+  background-clip: border-box; box-shadow: none; outline: none;
+  color: transparent;
 }
 switch:checked { background-color: @accent; border-color: @accent; }
 switch slider {
   min-width: 14px; min-height: 14px; margin: 2px;
   /* GTK stretches the slider node to half the allocated switch width.
      Paint a fixed-size circle instead of stretching that node's fill. */
-  border-radius: 50%; background-color: transparent;
+  /* Only the image paints the thumb. An allocated slider box must not add
+     a border, shadow, or rounded clip around that fixed-size circle. */
+  border: none; border-radius: 0; box-shadow: none; outline: none;
+  background-color: transparent; background-origin: content-box;
+  background-clip: content-box; -gtk-icon-source: none;
   background-image: url('assets/switch-thumb-off.svg');
   background-size: 14px 14px; background-position: center; background-repeat: no-repeat;
 }
@@ -115,10 +117,10 @@ scale slider:hover { box-shadow: 0 0 0 3px alpha(@accent, 0.15); }
 scale slider:focus { box-shadow: 0 0 0 3px alpha(@accent, 0.25); }
 scale.vertical { min-width: 22px; min-height: 0; padding: 7px 0; }
 scale.vertical trough { min-width: 4px; }
-scale value, scale marks { color: @muted; font-size: 12px; }
+scale value, scale marks { color: @muted; }
 scale indicator { min-width: 1px; min-height: 4px; background-color: @muted; }
 scale:disabled { opacity: 0.45; }
-progressbar { color: @fg; font-size: 10px; }
+progressbar { color: @fg; }
 progressbar trough { min-height: 8px; background-color: @progress; border-radius: 10px; }
 progressbar progress { min-height: 8px; min-width: 2px; background-color: @accent; border-radius: 8px; }
 progressbar.vertical trough, progressbar.vertical progress { min-width: 8px; min-height: 2px; }
