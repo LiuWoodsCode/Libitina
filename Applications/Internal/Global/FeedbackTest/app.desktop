@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=FeedbackTest
+Comment=Test feedbackd events and profiles
+Icon=audio-volume-high
+Terminal=false
+Categories=Development;Utility;
+X-Purism-FormFactor=Workstation;Mobile;

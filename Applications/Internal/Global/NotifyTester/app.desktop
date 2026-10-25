@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=NotifyTester
+Comment=Test desktop notification payloads, actions and lifecycle
+Icon=dialog-information
+Terminal=false
+Categories=Development;Utility;
+X-Purism-FormFactor=Workstation;Mobile;
