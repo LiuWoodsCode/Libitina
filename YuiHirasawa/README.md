@@ -95,3 +95,13 @@ surface for each monitor (including hotplugged displays). It can also run alone
 with `python3 wallpaper.py` in a Wayland session; avoid running it alongside the
 desktop shell. The renderer requires GTK 3, gtk-layer-shell, and PyGObject Cairo
 support (`python3-gi-cairo` on Debian, included by the installer).
+
+The launcher routes its own logs and inherited stdout/stderr from the shell,
+notification daemon, display worker, and session compositor to the systemd
+journal using `systemd-cat`. Read or follow them with `journalctl -t yui -b`
+or `journalctl -t yui -b -f`. Stdout uses info priority; stderr uses error priority.
+Python children run unbuffered so output arrives promptly. The journal connection
+is inherited across worker restarts. If `systemd-cat` or the journal socket is
+unavailable, output stays on the original stdout/stderr. Restart the session to
+apply this change. Programs that redirect their own output or use D-Bus activation
+manage their logs separately.

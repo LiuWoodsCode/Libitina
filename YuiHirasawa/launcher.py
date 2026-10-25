@@ -6,12 +6,36 @@ import fcntl
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import time
 
 ROOT = Path(__file__).resolve().parent
 RESTART_DELAY = 1.0
+
+
+def connect_journal():
+    """Re-exec through systemd-cat so all descendants inherit journal streams."""
+    if os.environ.get("YUI_JOURNAL_CONNECTED") == "1":
+        return
+    journal_cat = shutil.which("systemd-cat")
+    if journal_cat is None or not Path("/run/systemd/journal/stdout").is_socket():
+        print("Yui: journal unavailable; keeping stdout/stderr", file=sys.stderr, flush=True)
+        return
+    environment = os.environ.copy()
+    environment["YUI_JOURNAL_CONNECTED"] = "1"
+    environment["PYTHONUNBUFFERED"] = "1"
+    command = [journal_cat, "--identifier=yui", "--priority=info",
+               "--stderr-priority=err", "--level-prefix=no", "--",
+               sys.executable, "-u", str(Path(__file__).resolve()), *sys.argv[1:]]
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execve(journal_cat, command, environment)
+    except OSError as exc:
+        print(f"Yui: could not connect to journal: {exc}; keeping stdout/stderr",
+              file=sys.stderr, flush=True)
 
 
 def terminate_group(child, sig=signal.SIGKILL):
@@ -48,6 +72,7 @@ def supervise(commands):
                 if time.monotonic() >= retry_at.get(name, 0):
                     try:
                         children[name] = subprocess.Popen(command, cwd=ROOT, start_new_session=(name == "launcher"))
+                        print(f"Yui: started {name} (PID {children[name].pid})", file=sys.stderr, flush=True)
                     except OSError as exc:
                         print(f"Yui: could not start {name}: {exc}", file=sys.stderr, flush=True)
                         retry_at[name] = time.monotonic() + RESTART_DELAY
@@ -78,6 +103,7 @@ def main():
     parser.add_argument("--session", action="store_true", help="start the Labwc login session")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    connect_journal()
     if args.session:
         from labwc_session import main as run_session
         return run_session()
