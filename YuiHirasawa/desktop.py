@@ -395,7 +395,7 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
 def main() -> int:
     from wallpaper import DesktopWallpaper
 
-    wallpaper = DesktopWallpaper()
+    wallpaper = DesktopWallpaper(panel_height=Taskbar.HEIGHT)
     taskbar = Taskbar()
     taskbar.show_all()
     try:

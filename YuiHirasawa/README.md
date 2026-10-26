@@ -47,6 +47,11 @@ WirePlumber (`wpctl`), Bluetooth uses BlueZ, and battery status uses UPower.
 The Debian installer includes these dependencies. Status reads and control
 changes run off the UI thread, and each service can fail independently.
 
+Set `"show_internal_watermark": true` in `~/.config/yui/config.json` to show
+the OS pretty name, kernel version, Git branch and full commit hash, and
+`I <3 Jamie Paige` at the bottom right of each desktop, above the bottom panel.
+It defaults to false; changing the setting takes effect within a second.
+
 When `shell` is set to `mobile` in `~/.config/yui/config.json`, the YuiHirasawa
 Labwc login session uses a temporary copy of the merged `rc.xml` settings with
 a rule that opens all windows maximized and without server-side decorations.

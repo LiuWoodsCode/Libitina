@@ -13,6 +13,7 @@ CONFIG_PATH = Path.home() / ".config" / "yui" / "config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
     "wallpaper": "zohran", "wallpaper_enabled": True, "shell": "desktop", "software_rendering_apps": [],
     "squeekboard_enabled": False,
+    "show_internal_watermark": True,
 }
 WALLPAPERS = {"zohran": "zohran.png", "shibuya": "shibuya.jpg"}
 
@@ -87,6 +88,7 @@ def load_config() -> dict[str, Any]:
         "squeekboard_enabled": data.get("squeekboard_enabled", False)
         if isinstance(data.get("squeekboard_enabled", False), bool) else False,
         "software_rendering_apps": app_ids,
+        "show_internal_watermark": data.get("show_internal_watermark") is True,
     }
 
 
@@ -100,6 +102,9 @@ def save_config(config: Mapping[str, Any]) -> None:
     squeekboard_enabled = config.get("squeekboard_enabled", False)
     if not isinstance(squeekboard_enabled, bool):
         raise ValueError("squeekboard_enabled must be a boolean")
+    show_internal_watermark = config.get("show_internal_watermark", False)
+    if not isinstance(show_internal_watermark, bool):
+        raise ValueError("show_internal_watermark must be a boolean")
     wallpaper = validate_wallpaper(config.get("wallpaper", "zohran"))
     shell = config.get("shell", DEFAULT_CONFIG["shell"])
     if shell not in SHELL_OPTIONS:
@@ -120,7 +125,8 @@ def save_config(config: Mapping[str, Any]) -> None:
             json.dump(
                 {**config, "wallpaper": wallpaper, "wallpaper_enabled": wallpaper_enabled_value,
                  "shell": shell, "software_rendering_apps": app_ids,
-                 "squeekboard_enabled": squeekboard_enabled},
+                 "squeekboard_enabled": squeekboard_enabled,
+                 "show_internal_watermark": show_internal_watermark},
                 temporary,
                 indent=2,
             )
