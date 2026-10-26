@@ -888,11 +888,17 @@ class Taskbar(Gtk.Window):
 
 
 def main() -> int:
+    from lille import LilleProtection
+
+    protection = LilleProtection()
     taskbar = Taskbar()
     statusbar = StatusBar()
     taskbar.show_all()
     statusbar.show_all()
-    Gtk.main()
+    try:
+        Gtk.main()
+    finally:
+        protection.close()
     return 0
 
 

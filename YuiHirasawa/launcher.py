@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 from settings import load_config
 
@@ -52,6 +53,7 @@ def supervise(commands):
     stopping = False
     children = {}
     retry_at = {}
+    from lille import protection_triggered
 
     def stop(signum, frame):
         nonlocal stopping
@@ -62,6 +64,10 @@ def supervise(commands):
         while not stopping:
             for name, command in commands.items():
                 child = children.get(name)
+                if name == "squeekboard" and protection_triggered():
+                    if child is not None and child.poll() is None:
+                        child.terminate()
+                    continue
                 if child is not None:
                     status = child.poll()
                     if status is None:
@@ -106,6 +112,8 @@ def main():
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     connect_journal()
+    # Shared by all workers, retained across their restarts for this session.
+    os.environ.setdefault("YUI_LILLE_SESSION", uuid.uuid4().hex)
     if args.session:
         from labwc_session import main as run_session
         return run_session()

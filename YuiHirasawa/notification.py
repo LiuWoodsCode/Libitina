@@ -28,6 +28,7 @@ except (ImportError, ValueError):
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 from panel_animation import sliding_stack
+from lille import LilleProtection
 
 LOGGER = logging.getLogger("pixelnotify")
 # PyGObject initializes GTK when it is imported. A failed display connection
@@ -1076,6 +1077,7 @@ def main():
         )
         return 1
 
+    protection = LilleProtection(owner=False)
     center = NotificationCenter()
     _service = NotificationService(session_bus, center)
 
@@ -1087,7 +1089,10 @@ def main():
         center.screen_geometry.x,
         center.screen_geometry.y,
     )
-    Gtk.main()
+    try:
+        Gtk.main()
+    finally:
+        protection.close()
     return 0
 
 

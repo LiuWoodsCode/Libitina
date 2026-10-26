@@ -22,6 +22,7 @@ from system_pages import AccessibilityPage, AudioPage, DateTimePage, PowerPage
 from settings import (
     load_config, set_shell, set_software_rendering_apps, set_wallpaper_enabled,
     wallpaper_enabled, set_wallpaper,
+    save_config,
 )
 
 
@@ -136,6 +137,7 @@ class SettingsWindow(Handy.ApplicationWindow):
         ):
             self._stack.add_titled(page_class(), name, title)
         self._add_advanced_page()
+        self._add_lille_page()
         self._add_about_page()
 
         self._sidebar_list = self._make_sidebar()
@@ -205,10 +207,13 @@ class SettingsWindow(Handy.ApplicationWindow):
             ("datetime", "Date & Time", "preferences-system-time-symbolic"),
             ("accessibility", "Text & Input", "preferences-desktop-accessibility-symbolic"),
             ("advanced", "Advanced", "preferences-system-symbolic"),
+            ("lille", "Lille", "security-high-symbolic"),
             ("about", "About", "help-about-symbolic"),
         )
         first_row = None
         for page_name, title, icon_name in pages:
+            if page_name == "lille" and not load_config().get("enable_lille_config", False):
+                continue
             row = Gtk.ListBoxRow()
             row.page_name = page_name
             row.page_title = title
@@ -393,6 +398,104 @@ class SettingsWindow(Handy.ApplicationWindow):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.add(page)
         self._stack.add_titled(scroll, "advanced", "Advanced")
+
+    def _add_lille_page(self):
+        config = load_config()
+        if not config.get("enable_lille_config", False):
+            return
+        page = make_page()
+        description = Gtk.Label(
+            label=("Lille theft protection can watch the charger, nearby Wi-Fi networks, or both. "
+                   "With networks configured, it arms after seeing any trusted SSID or BSSID. "
+                   "Without networks, it arms only when Yui starts plugged in. "
+                   "Saved changes apply next session."), xalign=0, wrap=True)
+        description.set_max_width_chars(48)
+        page.pack_start(description, False, False, 0)
+        self._lille_enabled = Gtk.CheckButton(label="Enable Lille")
+        self._lille_enabled.set_active(config.get("enable_lille", False))
+        page.pack_start(self._lille_enabled, False, False, 0)
+        page.pack_start(Gtk.Label(label="Return location", xalign=0), False, False, 0)
+        self._lille_location = Gtk.Entry(text=config.get("lille_location", "the front desk"))
+        page.pack_start(self._lille_location, False, False, 0)
+        self._lille_networks = {}
+        for key, title in (("lille_ssids", "Trusted SSIDs — one network name per line"),
+                           ("lille_bssids", "Trusted BSSIDs — one access-point address per line")):
+            caption = Gtk.Label(label=title, xalign=0, wrap=True)
+            caption.set_max_width_chars(48)
+            page.pack_start(caption, False, False, 0)
+            editor = Gtk.TextView()
+            editor.set_wrap_mode(Gtk.WrapMode.NONE)
+            editor.get_buffer().set_text('\n'.join(config.get(key, [])))
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_shadow_type(Gtk.ShadowType.IN)
+            scroll.set_size_request(-1, 100)
+            scroll.add(editor)
+            page.pack_start(scroll, False, False, 0)
+            self._lille_networks[key] = editor
+        self._lille_require_charger = Gtk.CheckButton(label="Also require the charger to be disconnected")
+        self._lille_require_charger.set_active(config.get("lille_require_charger", True))
+        page.pack_start(self._lille_require_charger, False, False, 0)
+        hint = Gtk.Label(label="This option applies only when trusted networks are configured.",
+                         xalign=0, wrap=True)
+        hint.set_max_width_chars(48)
+        page.pack_start(hint, False, False, 0)
+        page.pack_start(Gtk.Label(label="Delay before tripping (seconds)", xalign=0), False, False, 0)
+        self._lille_delay = Gtk.SpinButton.new_with_range(0, 86400, 1)
+        self._lille_delay.set_value(config.get("lille_delay_seconds", 0))
+        page.pack_start(self._lille_delay, False, False, 0)
+        self._lille_disable_screen = Gtk.CheckButton(label="Disable the screen when Lille trips")
+        self._lille_disable_screen.set_active(config.get("lille_disable_screen", True))
+        page.pack_start(self._lille_disable_screen, False, False, 0)
+        self._lille_persist = Gtk.CheckButton(label="Keep the trip after reboot")
+        self._lille_persist.set_active(config.get("lille_persist_trip", False))
+        page.pack_start(self._lille_persist, False, False, 0)
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        save = Gtk.Button(label="Save Lille settings")
+        save.connect("clicked", self._save_lille)
+        reset = Gtk.Button(label="Clear saved trip")
+        reset.connect("clicked", self._clear_lille_trip)
+        actions.pack_start(save, False, False, 0)
+        actions.pack_start(reset, False, False, 0)
+        page.pack_start(actions, False, False, 0)
+        self._lille_status = Gtk.Label(
+            label="Saved trip: yes" if config.get("lille_trip_value", False) else "Saved trip: no",
+            xalign=0, wrap=True)
+        self._lille_status.set_max_width_chars(48)
+        page.pack_start(self._lille_status, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(page)
+        self._stack.add_titled(scroll, "lille", "Lille")
+
+    def _save_lille(self, *_args):
+        config = load_config()
+        config.update(enable_lille=self._lille_enabled.get_active(),
+                      lille_location=self._lille_location.get_text(),
+                      lille_require_charger=self._lille_require_charger.get_active(),
+                      lille_delay_seconds=self._lille_delay.get_value_as_int(),
+                      lille_disable_screen=self._lille_disable_screen.get_active(),
+                      lille_persist_trip=self._lille_persist.get_active())
+        for key, editor in self._lille_networks.items():
+            buffer = editor.get_buffer()
+            lines = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False).splitlines()
+            config[key] = [line.strip() if key == "lille_bssids" else line for line in lines if line]
+        try:
+            save_config(config)
+        except (OSError, ValueError) as exc:
+            self._lille_status.set_text(str(exc))
+        else:
+            self._lille_status.set_text("Saved. Log out and back in to apply.")
+
+    def _clear_lille_trip(self, *_args):
+        config = load_config()
+        config['lille_trip_value'] = False
+        try:
+            save_config(config)
+        except (OSError, ValueError) as exc:
+            self._lille_status.set_text(str(exc))
+        else:
+            self._lille_status.set_text("Saved trip cleared. Restart the Yui session to reset an active trip.")
 
     def _add_software_rendering_controls(self, page: Gtk.Box) -> None:
         page.pack_start(Gtk.Separator(), False, False, 0)

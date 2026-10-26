@@ -19,6 +19,7 @@ def startup(initialized, display):
         'LOGGER': Mock(), 'logging': logging, 'os': os, 'dbus': Mock(),
         'NotificationCenter': Mock(), 'NotificationService': Mock(),
         'GTK_LAYER_SHELL_AVAILABLE': True, 'Gtk': Mock(),
+        'LilleProtection': Mock(),
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), 'notification.py', 'exec'), namespace)
     return namespace

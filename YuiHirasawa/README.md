@@ -156,3 +156,67 @@ The keyboard uses its own reserved screen area alongside the lock screen.
 
 The locker remains a layer-shell prototype, not a compositor-enforced session
 lock; these changes do not add the Wayland session-lock protocol.
+
+Lille theft protection is available in both shell layouts. Its dedicated Settings
+section appears only when `enable_lille_config` is `true`. This controls visibility
+of its settings, independently of whether protection itself is enabled. All Lille
+options live in Settings → Lille. Configure `~/.config/yui/config.json`, for example:
+
+```json
+{
+  "enable_lille_config": true,
+  "enable_lille": true,
+  "lille_location": "the reception desk",
+  "lille_ssids": ["Store East", "Store West"],
+  "lille_bssids": ["AA:BB:CC:DD:EE:FF"],
+  "lille_require_charger": true,
+  "lille_delay_seconds": 30,
+  "lille_disable_screen": true,
+  "lille_persist_trip": false,
+  "lille_trip_value": false
+}
+```
+
+Log out and back in after saving changes. All protection settings and identifiers
+use the Lille name (`enable_lille` and `lille_location` replace the earlier keys).
+SSID names are exact and case-sensitive; BSSID addresses are case-insensitive.
+Enter one SSID or BSSID per line in Settings. A match with **any** configured entry
+counts as nearby; the device does not have to connect to that access point.
+
+With no SSIDs/BSSIDs, behavior stays charger-only: Lille arms if external power is
+connected at shell startup, then trips when all chargers disconnect. The charger
+factor toggle applies only when networks are configured. Charger status comes
+from Linux `/sys/class/power_supply`, including fully charged batteries.
+
+With network entries, Lille arms after observing a trusted access point. It trips
+when **none** of those entries are visible, optionally also requiring the charger
+to be disconnected. This works even if Yui started unplugged. A device that has
+not yet seen a trusted access point does not trip merely because the first scan
+finds none. The trusted observation is retained across worker restarts.
+
+The condition must remain confirmed for `lille_delay_seconds` (0–86400). Seeing a
+trusted AP, reconnecting required power, or losing reliable scan/power readings
+resets the countdown. Wi-Fi scanning uses NetworkManager's `nmcli`, runs off the
+GTK thread, and is attempted about every five seconds. Failed scans, disabled
+Wi-Fi, and readings older than fifteen seconds count as unknown, not as absence.
+Detection time includes the Wi-Fi scan interval; it is not a precise distance or
+GPS geofence. See the [NetworkManager nmcli manual](https://networkmanager.dev/docs/api/latest/nmcli.html).
+
+By default a trip hides Yui windows and notifications, stops its managed on-screen
+keyboard, and displays the return message on every monitor. Turn off
+`lille_disable_screen` to record a trip without blocking the screen. The runtime
+trip and a journal message are still recorded. Reconnecting power or a trusted
+network does not clear a completed trip.
+
+Enable `lille_persist_trip` to save `lille_trip_value: true` to the configuration
+when tripped. That restores the trip in new sessions and after reboot, even when
+power or trusted networks are available. Without persistence a new session resets
+the trip. Settings → Lille → Clear saved trip clears the configuration flag;
+restart the Yui session to clear an active runtime latch. From another session or
+terminal, set `lille_trip_value` to false (and optionally disable Lille) before
+restarting. Hiding the Lille settings section does not disable protection.
+
+The tracking/authorities text is a display message. Lille does not implement
+tracking or contact authorities, and does not control layer surfaces owned by
+unrelated applications. SSIDs/BSSIDs are proximity hints, not authenticated
+location evidence.

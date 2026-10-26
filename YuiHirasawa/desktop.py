@@ -401,13 +401,16 @@ class Taskbar(Gtk.Window, ApplicationCatalog):
 
 def main() -> int:
     from wallpaper import DesktopWallpaper
+    from lille import LilleProtection
 
+    protection = LilleProtection()
     wallpaper = DesktopWallpaper(panel_height=Taskbar.HEIGHT)
     taskbar = Taskbar()
     taskbar.show_all()
     try:
         Gtk.main()
     finally:
+        protection.close()
         wallpaper.close()
     return 0
 
