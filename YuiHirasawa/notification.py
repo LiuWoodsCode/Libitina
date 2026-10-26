@@ -27,6 +27,8 @@ except (ImportError, ValueError):
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
+from panel_animation import sliding_stack
+
 LOGGER = logging.getLogger("pixelnotify")
 # PyGObject initializes GTK when it is imported. A failed display connection
 # must restart the process: the GTK override caches that initialization result.
@@ -112,6 +114,7 @@ class NotificationBanner(Gtk.Window):
         self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
         self.set_app_paintable(True)
         self.set_size_request(self.WIDTH, self.MIN_HEIGHT)
+        self.get_style_context().add_class("notification-banner")
 
         if self._uses_layer_shell:
             GtkLayerShell.init_for_window(self)
@@ -200,10 +203,15 @@ class NotificationBanner(Gtk.Window):
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.connect("button-press-event", self._on_button_press)
 
-        # Realize child widgets once, but leave the banner itself hidden.
-        self.show_all()
+        # Prepare the contents without mapping an empty banner before it has
+        # been populated and positioned by the notification center.
+        root.show_all()
         self.icon.hide()
-        self.hide()
+        self._slide = sliding_stack(
+            self, Gtk.StackTransitionType.SLIDE_LEFT,
+            Gtk.StackTransitionType.SLIDE_RIGHT,
+        )
+        self._slide.show()
 
     def place(self, x, y, width, height, monitor_geometry):
         """Position the banner on both Wayland and traditional desktops."""
@@ -248,6 +256,12 @@ class NotificationBanner(Gtk.Window):
             return
 
         css = b"""
+        window.notification-banner,
+        window.notification-banner stack {
+            background-color: transparent;
+            background-image: none;
+        }
+
         .notification-root {
             background-color: rgba(25, 25, 25, 0.92);
             color: #eeeeee;
@@ -494,10 +508,10 @@ class NotificationBanner(Gtk.Window):
         self.queue_resize()
 
         try:
-            minimum, natural = self.get_preferred_height_for_width(self.WIDTH)
+            minimum, natural = self._slide.get_preferred_height_for_width(self.WIDTH)
             target_height = max(self.MIN_HEIGHT, natural, minimum)
         except Exception:
-            minimum, natural = self.get_preferred_height()
+            minimum, natural = self._slide.get_preferred_height()
             target_height = max(self.MIN_HEIGHT, natural, minimum)
 
         self._layout_size = (self.WIDTH, target_height)

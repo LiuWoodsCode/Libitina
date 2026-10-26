@@ -13,6 +13,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
 
 from trayback import StatusNotifierHost, TRAY_ICON_SIZE, TrayItem
 from app_launch import application_details
+from panel_animation import sliding_stack
 
 
 def round_window_corners(window: Gtk.Window, radius: int = 12) -> None:
@@ -64,87 +65,8 @@ def animate_window_from_edge(window: Gtk.Window, edge, duration_ms: int = 240) -
         }
     """)
     window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-    stack = Gtk.Stack()
-    stack.get_style_context().add_class("shell-slide-stack")
-    stack.set_homogeneous(True)
-    stack.set_interpolate_size(False)
-    stack.set_transition_duration(duration_ms)
-    blank = Gtk.Box()
-    blank.show()
-    content.show()
-    stack.add_named(blank, "closed")
-    stack.add_named(content, "open")
-    stack.set_visible_child_name("closed")
-    window.add(stack)
-    pending = None
-    close_action = None
-    window._shell_panel_closing = False
-
-    def cancel_pending():
-        nonlocal pending
-        if pending is not None:
-            GLib.source_remove(pending)
-            pending = None
-
-    def completed(*_args):
-        nonlocal close_action
-        if close_action is not None and not stack.get_transition_running():
-            action, close_action = close_action, None
-            action()
-
-    def close(destroy=False):
-        nonlocal close_action
-        if window._shell_panel_closing:
-            return
-        cancel_pending()
-        window._shell_panel_closing = True
-        close_action = window.destroy if destroy else window.hide
-        stack.set_transition_type(reverse)
-        stack.set_visible_child_name("closed")
-        # With animations disabled (or before the opening frame), no
-        # transition-running notification is guaranteed.
-        completed()
-
-    def reopen():
-        nonlocal close_action
-        close_action = None
-        window._shell_panel_closing = False
-        cancel_pending()
-        if window.get_mapped():
-            stack.set_transition_type(transition)
-            stack.set_visible_child_name("open")
-
-    window._close_shell_panel = close
-    window._reopen_shell_panel = reopen
-    stack.connect("notify::transition-running", completed)
-
-    def stop(_widget, *_args):
-        nonlocal close_action
-        close_action = None
-        window._shell_panel_closing = False
-        cancel_pending()
-        # Reset immediately so hide/reopen never animates the reset itself.
-        stack.set_transition_type(Gtk.StackTransitionType.NONE)
-        stack.set_visible_child_name("closed")
-
-    def mapped(widget):
-        nonlocal pending
-        stop(widget)
-
-        def reveal():
-            nonlocal pending
-            pending = None
-            if widget.get_mapped():
-                stack.set_transition_type(transition)
-                stack.set_visible_child_name("open")
-            return GLib.SOURCE_REMOVE
-
-        pending = GLib.idle_add(reveal)
-
-    window.connect("map", mapped)
-    window.connect("unmap", stop)
-    window.connect("destroy", stop)
-    return stack
+    window.add(content)
+    return sliding_stack(window, transition, reverse, duration_ms)
 
 
 def slide_panel_from_right(window: Gtk.Window, duration_ms: int = 240) -> Gtk.Stack:

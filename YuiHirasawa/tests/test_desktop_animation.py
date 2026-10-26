@@ -33,6 +33,10 @@ class DesktopAnimationTests(unittest.TestCase):
         helper = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
                       and node.name == "slide_panel_from_right")
         namespace["round_window_corners"] = Mock()
+        slide_tree = ast.parse((Path(__file__).resolve().parents[1] / "panel_animation.py").read_text())
+        slide = next(node for node in slide_tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name == "sliding_stack")
+        exec(compile(ast.Module(body=[slide], type_ignores=[]), "panel_animation.py", "exec"), namespace)
         exec(compile(ast.Module(body=[function, helper], type_ignores=[]), "shell_widgets.py", "exec"), namespace)
         self.animate = namespace["animate_window_from_edge"]
         self.slide = namespace["slide_panel_from_right"]

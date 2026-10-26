@@ -29,6 +29,9 @@ class ControlCenterGtkTests(unittest.TestCase):
                    and node.name in {'round_window_corners', 'animate_window_from_edge',
                                      'slide_panel_from_right', 'open_animated_panel', 'close_animated_panel'}]
         namespace = {'Gtk': Gtk, 'GLib': GLib, 'GtkLayerShell': Mock()}
+        slides = ast.parse((root / 'panel_animation.py').read_text())
+        sliding = [node for node in slides.body if isinstance(node, ast.FunctionDef)]
+        exec(compile(ast.Module(body=sliding, type_ignores=[]), 'panel_animation.py', 'exec'), namespace)
         exec(compile(ast.Module(body=helpers, type_ignores=[]), 'shell_widgets.py', 'exec'), namespace)
         tree = ast.parse((root / 'control_center.py').read_text())
         control = next(node for node in tree.body if isinstance(node, ast.ClassDef)
@@ -51,6 +54,19 @@ class ControlCenterGtkTests(unittest.TestCase):
         exec(compile(ast.Module(body=[launcher], type_ignores=[]), 'desktop.py', 'exec'), namespace)
         cls.Launcher = namespace['ApplicationLauncher']
         cls.launch = namespace['launch_application']
+        import html
+        import urllib.parse
+        gi.require_version('GdkPixbuf', '2.0')
+        from gi.repository import GdkPixbuf, Pango
+        tree = ast.parse((root / 'notification.py').read_text())
+        notifications = [node for node in tree.body if isinstance(node, ast.ClassDef)
+                         and node.name in {'Notification', 'NotificationBanner', 'NotificationCenter'}]
+        namespace.update(html=html, urllib=urllib, os=os, GdkPixbuf=GdkPixbuf, Pango=Pango,
+                         GST_AVAILABLE=False, GTK_LAYER_SHELL_AVAILABLE=False, LOGGER=Mock())
+        exec(compile(ast.Module(body=notifications, type_ignores=[]), 'notification.py', 'exec'), namespace)
+        cls.Notification = namespace['Notification']
+        cls.Banner = namespace['NotificationBanner']
+        cls.Center = namespace['NotificationCenter']
 
     def setUp(self):
         self.parent = self.Gtk.Window()
@@ -223,6 +239,54 @@ class ControlCenterGtkTests(unittest.TestCase):
             self.assertIsNone(self.controls.dialog)
         finally:
             settings.set_property('gtk-enable-animations', True)
+
+    def test_notification_slides_from_right_without_mapping_empty_banner(self):
+        banner = self.Banner()
+        self.addCleanup(banner.destroy)
+        self.assertFalse(banner.get_mapped())
+        notice = self.Notification('Test app', '', 'Test notification',
+                                   'A long message that wraps across multiple lines. ' * 8,
+                                   0, [('test', 'Test action')], {})
+        banner.set_notification(notice)
+        invoked, dismissed = Mock(), Mock()
+        banner.set_handlers(Mock(), invoked, dismissed)
+        width, height = banner.get_layout_size()
+        from gi.repository import Gdk
+        banner.place(20, 20, width, height, Gdk.Rectangle(x=0, y=0, width=1200, height=900))
+        banner.show()
+        stack = banner.get_child()
+        self.settle(lambda: stack.get_transition_running()
+                    and stack.get_child_by_name('open').get_allocated_width() > 1)
+        self.assertEqual(stack.get_transition_type(), self.Gtk.StackTransitionType.SLIDE_LEFT)
+        self.settle(lambda: not stack.get_transition_running())
+        self.assertGreater(banner.message.get_allocated_height(), 20)
+        self.assertTrue(banner.title.get_mapped())
+        self.assertFalse(banner.icon.get_visible())
+        banner.actions_box.get_children()[0].clicked()
+        invoked.assert_called_once_with('test')
+        banner.close_button.clicked()
+        dismissed.assert_called_once_with()
+
+    def test_visible_notification_updates_without_restarting_slide(self):
+        center = self.Center()
+        notice = self.Notification('Test app', '', 'First', 'Body', 0, [], {})
+        center.show_notification(1, notice)
+        banner = center.notifications_by_id[1]['banner']
+        self.addCleanup(banner.destroy)
+        stack = banner.get_child()
+        self.settle(lambda: stack.get_transition_running())
+        self.settle(lambda: not stack.get_transition_running())
+        notice.summary = 'Updated'
+        center.show_notification(1, notice)
+        self.assertIs(center.notifications_by_id[1]['banner'], banner)
+        self.assertFalse(stack.get_transition_running())
+        self.assertEqual(banner.title.get_text(), 'Updated')
+        center.show_notification(2, notice)
+        second = center.notifications_by_id[2]['banner']
+        self.addCleanup(second.destroy)
+        self.assertNotEqual(center._target_y(0), center._target_y(1))
+        self.assertTrue(center.hide_notification(1))
+        self.assertTrue(center.hide_notification(2))
 
 
 if __name__ == '__main__':
