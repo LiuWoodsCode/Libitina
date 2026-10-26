@@ -28,6 +28,9 @@ except (ImportError, ValueError):
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 LOGGER = logging.getLogger("pixelnotify")
+# PyGObject initializes GTK when it is imported. A failed display connection
+# must restart the process: the GTK override caches that initialization result.
+GTK_DISPLAY_INITIALIZED = Gdk.Display.get_default() is not None
 
 # Optional GI-backed sound playback.
 try:
@@ -1017,11 +1020,28 @@ class NotificationService(dbus.service.Object):
 # -----------------------------
 # Main Entrypoint
 # -----------------------------
+def display_ready():
+    if GTK_DISPLAY_INITIALIZED and Gdk.Display.get_default() is not None:
+        return True
+    LOGGER.error(
+        "GTK could not connect to the graphical session; exiting before claiming "
+        "org.freedesktop.Notifications so the Yui supervisor can retry. "
+        "WAYLAND_DISPLAY=%r DISPLAY=%r XDG_RUNTIME_DIR=%r GDK_BACKEND=%r. "
+        "Start this daemon from the graphical session, as the logged-in user.",
+        os.environ.get("WAYLAND_DISPLAY"), os.environ.get("DISPLAY"),
+        os.environ.get("XDG_RUNTIME_DIR"), os.environ.get("GDK_BACKEND"),
+    )
+    return False
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s pixelnotify: %(message)s",
     )
+
+    if not display_ready():
+        return 1
 
     # dbus-python and GTK now share the same GLib main loop directly.
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
