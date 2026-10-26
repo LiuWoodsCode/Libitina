@@ -330,9 +330,14 @@ class LilleProtection:
                 ''')
                 self.Gtk.StyleContext.add_provider_for_screen(
                     window.get_screen(), self._css, self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-            frame = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL)
+            # Overlay children do not contribute to the window's preferred
+            # size. Otherwise wrapping at a narrow minimum width can request
+            # a surface taller than the output and put its center offscreen.
+            frame = self.Gtk.Overlay()
+            frame.add(self.Gtk.DrawingArea())
             content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=24)
             content.set_border_width(24)
+            content.set_halign(self.Gtk.Align.CENTER)
             content.set_valign(self.Gtk.Align.CENTER)
             title = self.Gtk.Label(label=f"Please return to {self.config['lille_location']}")
             title.get_style_context().add_class('lille-title')
@@ -344,9 +349,23 @@ class LilleProtection:
                 label.set_max_width_chars(48)
                 label.set_justify(self.Gtk.Justification.CENTER)
                 content.pack_start(label, False, False, 0)
-            frame.pack_start(content, True, True, 0)
+            frame.add_overlay(content)
+            frame.connect('get-child-position', self._position_message)
             window.add(frame)
+            # GDK geometry is already in logical pixels, including on scaled
+            # outputs. Let layer-shell's four anchors supply the actual size.
+            geometry = monitor.get_geometry()
+            window.set_default_size(max(1, geometry.width), max(1, geometry.height))
             window.show_all()
+
+    def _position_message(self, frame, content, allocation):
+        width, height = frame.get_allocated_width(), frame.get_allocated_height()
+        allocation.width = max(1, min(720, width))
+        _minimum, natural = content.get_preferred_height_for_width(allocation.width)
+        allocation.height = max(1, natural)
+        allocation.x = (width - allocation.width) // 2
+        allocation.y = (height - allocation.height) // 2
+        return True
 
     def close(self):
         if self.state is None:

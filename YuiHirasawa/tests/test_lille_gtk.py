@@ -59,7 +59,7 @@ class LilleProtectionGtkTests(unittest.TestCase):
         self.assertTrue(guard.overlays)
         for window in guard.overlays.values():
             self.assertTrue(window.get_visible())
-            labels = window.get_child().get_children()[0].get_children()
+            labels = window.get_child().get_children()[-1].get_children()
             self.assertEqual(labels[0].get_text(), 'Please return to Library desk')
             self.assertEqual(labels[1].get_text(), lille.MESSAGE)
             self.assertGreater(labels[0].get_style_context().get_font(self.Gtk.StateFlags.NORMAL).get_size(),
@@ -149,8 +149,58 @@ class LilleProtectionGtkTests(unittest.TestCase):
         guard._poll()
         self.assertTrue(guard.overlays)
         self.assertFalse(self.original.get_visible())
-        self.original.show_all()
-        self.assertFalse(self.original.get_visible())
+
+    def test_message_is_centered_and_unclipped_at_logical_screen_sizes(self):
+        from gi.repository import GLib
+        self.config['lille_location'] = 'demo station'
+        guard = self.controller()
+        self.power = False
+        guard._poll()
+        window = next(iter(guard.overlays.values()))
+        frame = window.get_child()
+        content = frame.get_children()[-1]
+        # Wrapped labels must never enlarge the layer surface's requisition.
+        _minimum, natural = frame.get_preferred_size()
+        self.assertLessEqual(natural.height, 1)
+        self.assertLessEqual(natural.width, 1)
+        # Test the real GTK layout without the native window manager's sizing
+        # rules. The layer-shell API is stubbed on this Mac, so the original
+        # full-monitor native window is not a faithful resize test surface.
+        window.remove(frame)
+        for name in ('_source', '_initial'):
+            source = getattr(guard, name)
+            if source is not None:
+                GLib.source_remove(source)
+                setattr(guard, name, None)
+        guard.GObject.signal_remove_emission_hook(guard._map_signal, guard._hook)
+        guard._hook = None
+        for width, height in ((320, 568), (360, 720), (640, 320), (1280, 720)):
+            with self.subTest(logical_size=(width, height)):
+                host = self.Gtk.OffscreenWindow()
+                host.get_style_context().add_class('lille')
+                host.set_size_request(width, height)
+                host.add(frame)
+                host.show_all()
+                loop = GLib.MainLoop()
+                GLib.timeout_add(50, lambda: (loop.quit(), False)[1])
+                loop.run()
+                try:
+                    self.assertEqual(frame.get_allocated_width(), width)
+                    self.assertEqual(frame.get_allocated_height(), height)
+                    x, y = content.translate_coordinates(frame, 0, 0)
+                    self.assertAlmostEqual(x + content.get_allocated_width() / 2, width / 2, delta=1)
+                    self.assertAlmostEqual(y + content.get_allocated_height() / 2, height / 2, delta=1)
+                    for label in content.get_children():
+                        self.assertTrue(label.get_mapped())
+                        lx, ly = label.translate_coordinates(frame, 0, 0)
+                        self.assertGreaterEqual(lx, 0)
+                        self.assertGreaterEqual(ly, 0)
+                        self.assertLessEqual(lx + label.get_allocated_width(), width)
+                        self.assertLessEqual(ly + label.get_allocated_height(), height)
+                finally:
+                    host.remove(frame)
+                    host.destroy()
+
 
     def test_settings_visibility_validation_and_round_trip(self):
         import settings
