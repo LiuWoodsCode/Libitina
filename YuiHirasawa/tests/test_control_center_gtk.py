@@ -19,15 +19,16 @@ class ControlCenterGtkTests(unittest.TestCase):
         import gi
         gi.require_version('Gtk', '3.0')
         gi.require_version('Gdk', '3.0')
-        from gi.repository import Gdk, GLib, Gtk
+        from gi.repository import Gdk, Gio, GLib, Gtk
         cls.Gtk, cls.GLib = Gtk, GLib
         Gtk.init([])
         Gtk.Settings.get_default().set_property('gtk-enable-animations', True)
         root = Path(__file__).resolve().parents[1]
         tree = ast.parse((root / 'shell_widgets.py').read_text())
         helpers = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-                   and node.name in {'round_window_corners', 'slide_panel_from_right'}]
-        namespace = {'Gtk': Gtk, 'GLib': GLib}
+                   and node.name in {'round_window_corners', 'animate_window_from_edge',
+                                     'slide_panel_from_right'}]
+        namespace = {'Gtk': Gtk, 'GLib': GLib, 'GtkLayerShell': Mock()}
         exec(compile(ast.Module(body=helpers, type_ignores=[]), 'shell_widgets.py', 'exec'), namespace)
         tree = ast.parse((root / 'control_center.py').read_text())
         control = next(node for node in tree.body if isinstance(node, ast.ClassDef)
@@ -36,6 +37,20 @@ class ControlCenterGtkTests(unittest.TestCase):
                          _prepare_launcher_dialog=lambda *args: None)
         exec(compile(ast.Module(body=[control], type_ignores=[]), 'control_center.py', 'exec'), namespace)
         cls.Controls = namespace['StatusControls']
+        tree = ast.parse((root / 'desktop.py').read_text())
+        launcher = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                        and node.name == 'ApplicationLauncher')
+        apps = [SimpleNamespace(get_icon=lambda: None,
+                                get_display_name=lambda i=i: f'Test App {i}')
+                for i in range(24)]
+        catalog = type('TestCatalog', (), {'_applications': lambda self: apps})
+        namespace.update(Gio=Gio, ApplicationCatalog=catalog,
+                         getpass=SimpleNamespace(getuser=lambda: 'Test user'),
+                         attach_application_menu=lambda *args: None,
+                         launch_application=Mock(return_value=False))
+        exec(compile(ast.Module(body=[launcher], type_ignores=[]), 'desktop.py', 'exec'), namespace)
+        cls.Launcher = namespace['ApplicationLauncher']
+        cls.launch = namespace['launch_application']
 
     def setUp(self):
         self.parent = self.Gtk.Window()
@@ -145,6 +160,42 @@ class ControlCenterGtkTests(unittest.TestCase):
         from gi.repository import Gdk
         self.assertTrue(self.controls._key(None, SimpleNamespace(keyval=Gdk.KEY_Escape)))
         self.assertIsNone(self.controls.dialog)
+
+    def test_launcher_slides_up_and_reopens_after_escape(self):
+        launcher = self.Launcher()
+        self.addCleanup(launcher.destroy)
+        launcher.show_all()
+        launcher.present()
+        stack = launcher.get_child()
+        self.assertIsInstance(stack, self.Gtk.Stack)
+        self.assertEqual(stack.get_transition_type(), self.Gtk.StackTransitionType.NONE)
+        panel = stack.get_child_by_name('open')
+        self.settle(lambda: stack.get_transition_running()
+                    and panel.get_allocated_width() > 1)
+        self.assertEqual(stack.get_transition_type(), self.Gtk.StackTransitionType.SLIDE_UP)
+        sizes, offsets = [], []
+        def finished():
+            sizes.append((panel.get_allocated_width(), panel.get_allocated_height()))
+            offsets.append(panel.get_parent_window().get_position()[1])
+            return not stack.get_transition_running()
+        self.settle(finished)
+        self.assertEqual(len(set(sizes)), 1, sizes)
+        self.assertTrue(any(y > 0 for y in offsets), offsets)
+        self.assertEqual(offsets[-1], 0)
+        scroller = panel.get_children()[-1]
+        app_list = scroller.get_child().get_child()
+        button = app_list.get_children()[0].get_child()
+        self.assertTrue(button.get_mapped())
+        self.launch.reset_mock()
+        button.clicked()
+        self.launch.assert_called_once()
+        from gi.repository import Gdk
+        launcher._on_key_press(launcher, SimpleNamespace(keyval=Gdk.KEY_Escape))
+        self.assertFalse(launcher.get_visible())
+        launcher.toggle()
+        self.settle(lambda: stack.get_transition_running())
+        self.settle(lambda: not stack.get_transition_running())
+        self.assertEqual(stack.get_visible_child_name(), 'open')
 
 
 if __name__ == '__main__':

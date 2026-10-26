@@ -25,7 +25,7 @@ class DesktopAnimationTests(unittest.TestCase):
             "Gtk": SimpleNamespace(Window=object, Stack=Mock(return_value=self.stack),
                                    Box=Mock(), CssProvider=Mock(),
                                    STYLE_PROVIDER_PRIORITY_APPLICATION=600,
-                                   StackTransitionType=SimpleNamespace(NONE="none", SLIDE_LEFT="left"),
+                                   StackTransitionType=SimpleNamespace(NONE="none", SLIDE_LEFT="left", SLIDE_UP="up"),
                                    Revealer=Mock(return_value=self.revealer),
                                    RevealerTransitionType=SimpleNamespace(
                                        SLIDE_LEFT="left", SLIDE_UP="up")),
@@ -71,19 +71,23 @@ class DesktopAnimationTests(unittest.TestCase):
         self.stack.set_visible_child_name.assert_called_with("open")
 
     def test_launcher_reveals_upward(self):
-        self.connect("bottom")
-        self.revealer.set_transition_type.assert_called_once_with("up")
-        self.revealer.set_transition_duration.assert_called_once_with(240)
+        signals = self.connect("bottom")
+        self.stack.set_homogeneous.assert_called_once_with(True)
+        self.stack.set_transition_duration.assert_called_once_with(240)
+        signals["map"](self.window)
+        self.glib.idle_add.call_args.args[0]()
+        self.stack.set_transition_type.assert_called_with("up")
+        self.stack.set_visible_child_name.assert_called_with("open")
 
     def test_hiding_cancels_pending_reveal_and_reopening_restarts(self):
         signals = self.connect("bottom")
         signals["map"](self.window)
         signals["unmap"](self.window)
         self.glib.source_remove.assert_called_once_with(7)
-        self.revealer.set_reveal_child.assert_called_with(False)
+        self.stack.set_visible_child_name.assert_called_with("closed")
         signals["map"](self.window)
         self.glib.idle_add.call_args.args[0]()
-        self.revealer.set_reveal_child.assert_called_with(True)
+        self.stack.set_visible_child_name.assert_called_with("open")
 
     def test_existing_hidden_control_center_is_shown_again(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "control_center.py").read_text())
