@@ -25,10 +25,10 @@ class DesktopAnimationTests(unittest.TestCase):
             "Gtk": SimpleNamespace(Window=object, Stack=Mock(return_value=self.stack),
                                    Box=Mock(), CssProvider=Mock(),
                                    STYLE_PROVIDER_PRIORITY_APPLICATION=600,
-                                   StackTransitionType=SimpleNamespace(NONE="none", SLIDE_LEFT="left", SLIDE_UP="up"),
+                                   StackTransitionType=SimpleNamespace(NONE="none", SLIDE_LEFT="left", SLIDE_UP="up", SLIDE_RIGHT="right", SLIDE_DOWN="down"),
                                    Revealer=Mock(return_value=self.revealer),
                                    RevealerTransitionType=SimpleNamespace(
-                                       SLIDE_LEFT="left", SLIDE_UP="up")),
+                                       SLIDE_LEFT="left", SLIDE_UP="up", SLIDE_RIGHT="right", SLIDE_DOWN="down")),
             "GtkLayerShell": self.layer, "GLib": self.glib}
         helper = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
                       and node.name == "slide_panel_from_right")
@@ -96,11 +96,11 @@ class DesktopAnimationTests(unittest.TestCase):
         show = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
                     and node.name == "show")
         namespace = {}
+        namespace["open_animated_panel"] = Mock()
         exec(compile(ast.Module(body=[show], type_ignores=[]), "control_center.py", "exec"), namespace)
         controls = Mock()
         namespace["show"](controls)
-        controls.dialog.show_all.assert_called_once()
-        controls.dialog.present.assert_called_once()
+        namespace["open_animated_panel"].assert_called_once_with(controls.dialog)
         controls._create_dialog.assert_not_called()
 
 

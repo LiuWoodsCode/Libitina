@@ -5,7 +5,7 @@ import threading
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 import status_backend as backend
-from shell_widgets import _prepare_launcher_dialog, round_window_corners, slide_panel_from_right
+from shell_widgets import _prepare_launcher_dialog, round_window_corners, slide_panel_from_right, close_animated_panel, open_animated_panel
 
 
 class StatusControls:
@@ -99,8 +99,11 @@ class StatusControls:
 
     def show(self, *_):
         if self.dialog:
-            self.dialog.show_all()
-            self.dialog.present()
+            if self.bottom_right:
+                open_animated_panel(self.dialog)
+            else:
+                self.dialog.show_all()
+                self.dialog.present()
             return
         self._create_dialog()
         self.dialog.show_all()
@@ -115,6 +118,7 @@ class StatusControls:
         self.dialog.set_decorated(False)
         self.dialog.connect('destroy', self._dialog_closed)
         self.dialog.connect('key-press-event', self._key)
+        self.dialog.connect('delete-event', self._dismiss_dialog)
         _prepare_launcher_dialog(self.dialog, self.parent, 'yui-control-center')
         if self.bottom_right:
             round_window_corners(self.dialog)
@@ -136,7 +140,7 @@ class StatusControls:
         contents = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         contents.pack_start(scroller, True, True, 0)
         close = Gtk.Button(label='Close', halign=Gtk.Align.END)
-        close.connect('clicked', lambda *_: self.dialog.destroy())
+        close.connect('clicked', self._dismiss_dialog)
         contents.pack_end(close, False, False, 0)
         self.dialog.add(contents)
         self._built = False
@@ -146,9 +150,17 @@ class StatusControls:
             self._build()
             self._sync()
 
+    def _dismiss_dialog(self, *_args):
+        if self.dialog is not None:
+            if self.bottom_right:
+                close_animated_panel(self.dialog, destroy=True)
+            else:
+                self.dialog.destroy()
+        return True
+
     def _key(self, _widget, event):
         if event.keyval == Gdk.KEY_Escape:
-            self.dialog.destroy()
+            self._dismiss_dialog()
             return True
         return False
 

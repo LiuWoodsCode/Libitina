@@ -19,7 +19,7 @@ from backend import (
 from control_center import StatusControls
 from launcher_control import LauncherControl
 from app_launch import launch_application, launch_in_foot
-from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu, round_window_corners, animate_window_from_edge
+from shell_widgets import SystemTray, _fixed_icon_image, show_error_dialog, attach_application_menu, round_window_corners, animate_window_from_edge, close_animated_panel, open_animated_panel
 
 
 class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
@@ -32,6 +32,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
         round_window_corners(self)
         self.set_resizable(False)
         self.connect("key-press-event", self._on_key_press)
+        self.connect("delete-event", self._on_delete)
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
@@ -100,7 +101,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
             app, lambda title, detail: self._show_error(title, detail, app),
             self.get_display().get_app_launch_context()
         ):
-            self.hide()
+            close_animated_panel(self)
 
     def _power_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -138,7 +139,7 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
                 return
         try:
             run_session_action(command)
-            self.hide()
+            close_animated_panel(self)
         except GLib.Error as exc:
             self._show_error(f"Could not {label.lower()}", exc.message)
 
@@ -147,20 +148,26 @@ class ApplicationLauncher(Gtk.Window, ApplicationCatalog):
             lambda: launch_in_foot(app, self.get_display().get_app_launch_context())
         ) if app is not None else None
         if show_error_dialog(self, title, detail, on_retry=retry):
-            self.hide()
+            close_animated_panel(self)
 
     def _on_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
         if event.keyval == Gdk.KEY_Escape:
-            self.hide()
+            close_animated_panel(self)
             return True
         return False
 
+    def _on_delete(self, *_args) -> bool:
+        close_animated_panel(self)
+        return True
+
+    def open(self) -> None:
+        open_animated_panel(self)
+
     def toggle(self) -> None:
-        if self.get_visible():
-            self.hide()
+        if self.get_visible() and not getattr(self, "_shell_panel_closing", False):
+            close_animated_panel(self)
         else:
-            self.show_all()
-            self.present()
+            self.open()
 
 
 class Taskbar(Gtk.Window, ApplicationCatalog):

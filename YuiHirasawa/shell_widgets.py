@@ -43,6 +43,9 @@ def animate_window_from_edge(window: Gtk.Window, edge, duration_ms: int = 240) -
     transition = (Gtk.StackTransitionType.SLIDE_LEFT
                   if edge == GtkLayerShell.Edge.RIGHT
                   else Gtk.StackTransitionType.SLIDE_UP)
+    reverse = (Gtk.StackTransitionType.SLIDE_RIGHT
+               if edge == GtkLayerShell.Edge.RIGHT
+               else Gtk.StackTransitionType.SLIDE_DOWN)
     content = window.get_child()
     window.remove(content)
     # Move the rounded background with the controls, leaving the rest of the
@@ -74,12 +77,52 @@ def animate_window_from_edge(window: Gtk.Window, edge, duration_ms: int = 240) -
     stack.set_visible_child_name("closed")
     window.add(stack)
     pending = None
+    close_action = None
+    window._shell_panel_closing = False
 
-    def stop(_widget, *_args):
+    def cancel_pending():
         nonlocal pending
         if pending is not None:
             GLib.source_remove(pending)
             pending = None
+
+    def completed(*_args):
+        nonlocal close_action
+        if close_action is not None and not stack.get_transition_running():
+            action, close_action = close_action, None
+            action()
+
+    def close(destroy=False):
+        nonlocal close_action
+        if window._shell_panel_closing:
+            return
+        cancel_pending()
+        window._shell_panel_closing = True
+        close_action = window.destroy if destroy else window.hide
+        stack.set_transition_type(reverse)
+        stack.set_visible_child_name("closed")
+        # With animations disabled (or before the opening frame), no
+        # transition-running notification is guaranteed.
+        completed()
+
+    def reopen():
+        nonlocal close_action
+        close_action = None
+        window._shell_panel_closing = False
+        cancel_pending()
+        if window.get_mapped():
+            stack.set_transition_type(transition)
+            stack.set_visible_child_name("open")
+
+    window._close_shell_panel = close
+    window._reopen_shell_panel = reopen
+    stack.connect("notify::transition-running", completed)
+
+    def stop(_widget, *_args):
+        nonlocal close_action
+        close_action = None
+        window._shell_panel_closing = False
+        cancel_pending()
         # Reset immediately so hide/reopen never animates the reset itself.
         stack.set_transition_type(Gtk.StackTransitionType.NONE)
         stack.set_visible_child_name("closed")
@@ -106,6 +149,24 @@ def animate_window_from_edge(window: Gtk.Window, edge, duration_ms: int = 240) -
 
 def slide_panel_from_right(window: Gtk.Window, duration_ms: int = 240) -> Gtk.Stack:
     return animate_window_from_edge(window, GtkLayerShell.Edge.RIGHT, duration_ms)
+
+
+def close_animated_panel(window: Gtk.Window, *, destroy: bool = False) -> None:
+    close = getattr(window, "_close_shell_panel", None)
+    if close is not None:
+        close(destroy)
+    elif destroy:
+        window.destroy()
+    else:
+        window.hide()
+
+
+def open_animated_panel(window: Gtk.Window) -> None:
+    reopen = getattr(window, "_reopen_shell_panel", None)
+    if reopen is not None:
+        reopen()
+    window.show_all()
+    window.present()
 
 
 def attach_application_menu(button: Gtk.Button, parent: Gtk.Window, app, on_open) -> None:

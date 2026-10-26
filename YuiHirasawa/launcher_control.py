@@ -23,8 +23,12 @@ class LauncherControl:
             PATH, self._interface, self._call, None, None)
 
     def _call(self, _connection, _sender, _path, _interface, _method, _parameters, invocation):
-        self._launcher.show_all()
-        self._launcher.present()
+        opener = getattr(self._launcher, "open", None)
+        if opener is not None:
+            opener()
+        else:
+            self._launcher.show_all()
+            self._launcher.present()
         invocation.return_value(None)
 
     def close(self):

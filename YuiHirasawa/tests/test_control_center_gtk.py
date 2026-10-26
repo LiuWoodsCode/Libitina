@@ -27,7 +27,7 @@ class ControlCenterGtkTests(unittest.TestCase):
         tree = ast.parse((root / 'shell_widgets.py').read_text())
         helpers = [node for node in tree.body if isinstance(node, ast.FunctionDef)
                    and node.name in {'round_window_corners', 'animate_window_from_edge',
-                                     'slide_panel_from_right'}]
+                                     'slide_panel_from_right', 'open_animated_panel', 'close_animated_panel'}]
         namespace = {'Gtk': Gtk, 'GLib': GLib, 'GtkLayerShell': Mock()}
         exec(compile(ast.Module(body=helpers, type_ignores=[]), 'shell_widgets.py', 'exec'), namespace)
         tree = ast.parse((root / 'control_center.py').read_text())
@@ -130,7 +130,9 @@ class ControlCenterGtkTests(unittest.TestCase):
                                               dialog.get_allocated_width(), dialog.get_allocated_height())
             pixbuf.savev(str(path / 'control-center.png'), 'png', [], [])
         close.clicked()
-        self.assertIsNone(self.controls.dialog)
+        self.assertIsNotNone(self.controls.dialog)
+        self.assertEqual(self.stack.get_transition_type(), self.Gtk.StackTransitionType.SLIDE_RIGHT)
+        self.settle(lambda: self.controls.dialog is None)
 
     def test_reopen_and_destroy_during_animation(self):
         self.open_panel()
@@ -159,7 +161,7 @@ class ControlCenterGtkTests(unittest.TestCase):
             self.assertEqual(change.call_args.args[0], 'wifi')
         from gi.repository import Gdk
         self.assertTrue(self.controls._key(None, SimpleNamespace(keyval=Gdk.KEY_Escape)))
-        self.assertIsNone(self.controls.dialog)
+        self.settle(lambda: self.controls.dialog is None)
 
     def test_launcher_slides_up_and_reopens_after_escape(self):
         launcher = self.Launcher()
@@ -191,11 +193,36 @@ class ControlCenterGtkTests(unittest.TestCase):
         self.launch.assert_called_once()
         from gi.repository import Gdk
         launcher._on_key_press(launcher, SimpleNamespace(keyval=Gdk.KEY_Escape))
-        self.assertFalse(launcher.get_visible())
+        self.assertTrue(launcher.get_visible())
+        self.assertEqual(stack.get_transition_type(), self.Gtk.StackTransitionType.SLIDE_DOWN)
+        self.settle(lambda: not launcher.get_visible())
         launcher.toggle()
         self.settle(lambda: stack.get_transition_running())
         self.settle(lambda: not stack.get_transition_running())
         self.assertEqual(stack.get_visible_child_name(), 'open')
+
+    def test_reopening_control_center_cancels_pending_close(self):
+        self.open_panel()
+        self.settle(lambda: not self.stack.get_transition_running())
+        dialog = self.controls.dialog
+        self.controls._dismiss_dialog()
+        self.assertTrue(self.stack.get_transition_running())
+        self.controls.show()
+        self.settle(lambda: not self.stack.get_transition_running())
+        self.assertIs(self.controls.dialog, dialog)
+        self.assertTrue(dialog.get_visible())
+        self.assertEqual(self.stack.get_visible_child_name(), 'open')
+
+    def test_close_with_animations_disabled_does_not_wait(self):
+        self.open_panel()
+        self.settle(lambda: not self.stack.get_transition_running())
+        settings = self.Gtk.Settings.get_default()
+        settings.set_property('gtk-enable-animations', False)
+        try:
+            self.controls._dismiss_dialog()
+            self.assertIsNone(self.controls.dialog)
+        finally:
+            settings.set_property('gtk-enable-animations', True)
 
 
 if __name__ == '__main__':
