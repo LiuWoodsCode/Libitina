@@ -1,3 +1,6 @@
+# NOTICE!!
+This project has been moved into [it's own GitHub org](https://github.com/LibitinaOS/libitina). 
+
 # Project Libitina
 Project Libitina is a project to make Linux on mobile phones appeal to regular users while also having options that are performant on low power devices / devices without graphics acceleration.
 
